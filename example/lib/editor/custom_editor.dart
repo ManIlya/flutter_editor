@@ -1,0 +1,1047 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/gestures.dart';
+import 'package:float_column/float_column.dart';
+import 'package:image_picker/image_picker.dart';
+import 'dart:math';
+import 'dart:ui' show lerpDouble;
+import 'package:flutter_editor/flutter_editor.dart';
+
+class CustomEditor extends StatefulWidget {
+  final DocumentModel initialDocument;
+  final Function(DocumentModel)? onDocumentChanged;
+
+  const CustomEditor({Key? key, required this.initialDocument, this.onDocumentChanged}) : super(key: key);
+
+  @override
+  State<CustomEditor> createState() => _CustomEditorState();
+}
+
+class _CustomEditorState extends State<CustomEditor> {
+  late DocumentModel _document;
+  final FocusNode _focusNode = FocusNode();
+  int? _selectedIndex;
+  TextSelection? _selection;
+  // Текущее положение float для изображения
+  FCFloat _currentImageFloat = FCFloat.start;
+
+  @override
+  void initState() {
+    super.initState();
+    _document = widget.initialDocument.copy();
+  }
+
+  @override
+  void dispose() {
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _addImage() async {
+    final ImagePicker picker = ImagePicker();
+    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+
+    if (image == null) return;
+
+    // В данном примере мы будем использовать заданную в задании картинку вместо выбранной
+    final imageElement = ImageElement(
+      imageUrl: 'https://storage.yandexcloud.net/vrnm/aad3dc7c4ebeed752ec109_800.jpg',
+      caption: 'Пример изображения',
+      alignment: Alignment.center,
+    );
+
+    setState(() {
+      _document.addElement(imageElement);
+      _selectedIndex = _document.elements.length - 1;
+      _notifyDocumentChanged();
+    });
+  }
+
+  void _updateTextElement(int index, String newText) {
+    if (index >= 0 && index < _document.elements.length) {
+      if (_document.elements[index] is TextElement) {
+        final textElement = _document.elements[index] as TextElement;
+
+        print('════════════════════════════════════════════');
+        print('📝 ОБНОВЛЕНИЕ ТЕКСТОВОГО ЭЛЕМЕНТА #$index:');
+        print('Старый текст: "${textElement.text}"');
+        print('Новый текст: "$newText"');
+
+        // Логируем структуру спанов до обновления
+        print('СТРУКТУРА СПАНОВ ДО ОБНОВЛЕНИЯ:');
+        int currentPos = 0;
+        for (int i = 0; i < textElement.spans.length; i++) {
+          final span = textElement.spans[i];
+          final spanStart = currentPos;
+          final spanEnd = currentPos + span.text.length;
+
+          final bool isBold = span.style.bold;
+          final bool isItalic = span.style.italic;
+          final bool isUnderline = span.style.underline;
+          final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
+
+          print('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
+          currentPos = spanEnd;
+        }
+
+        // Сохраняем текст для отложенного обновления
+        final String updatedText = newText;
+
+        // Отложенное обновление текстового элемента
+        Future.microtask(() {
+          if (mounted) {
+            if (_selection != null && _selection!.start != _selection!.end) {
+              // Если есть активное выделение, обновляем текст с сохранением стилей
+              print('Обновление текста с активным выделением: ${_selection!.start}-${_selection!.end}');
+
+              // Важно! TextEditor сам управляет форматированием текста
+              // и передает только newText, но не spans
+              if (textElement.text != updatedText) {
+                textElement.text = updatedText;
+              }
+            } else {
+              // Обычное обновление текста
+              if (textElement.spans.length <= 1) {
+                textElement.text = updatedText;
+                print('Обновлен текст элемента (один спан)');
+              } else {
+                print('Обновление текста с сохранением структуры спанов...');
+                _updateTextElementWithSpans(textElement, updatedText);
+              }
+            }
+
+            // Логируем структуру спанов после обновления
+            print('СТРУКТУРА СПАНОВ ПОСЛЕ ОБНОВЛЕНИЯ:');
+            int posAfter = 0;
+            for (int i = 0; i < textElement.spans.length; i++) {
+              final span = textElement.spans[i];
+              final spanStart = posAfter;
+              final spanEnd = posAfter + span.text.length;
+
+              final bool isBold = span.style.bold;
+              final bool isItalic = span.style.italic;
+              final bool isUnderline = span.style.underline;
+              final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
+
+              print(
+                'Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"',
+              );
+              posAfter = spanEnd;
+            }
+            print('════════════════════════════════════════════');
+
+            // Единый вызов на обновление состояния
+            if (mounted) {
+              setState(() {
+                // Все изменения стейта находятся внутри одного блока
+              });
+
+              // Отдельно уведомляем об изменении документа
+              _notifyDocumentChanged();
+            }
+          }
+        });
+      }
+    }
+  }
+
+  // Обновляет элемент изображения
+  void _updateImageElement(int index, ImageElement newImageElement) {
+    if (index >= 0 && index < _document.elements.length) {
+      if (_document.elements[index] is ImageElement) {
+        setState(() {
+          _document.elements[index] = newImageElement;
+          _notifyDocumentChanged();
+        });
+      }
+    }
+  }
+
+  // Изменяет положение float для изображения
+  void _changeImageFloat(FCFloat float) {
+    setState(() {
+      _currentImageFloat = float;
+    });
+  }
+
+  // Обновляет текст, сохраняя стили в существующих спанах
+  void _updateTextElementWithSpans(TextElement element, String newText) {
+    final String oldText = element.text;
+
+    print('════════════════════════════════════════════');
+    print('🔄 ОБНОВЛЕНИЕ ТЕКСТА С СОХРАНЕНИЕМ СТИЛЕЙ:');
+    print('Старый текст: "$oldText"');
+    print('Новый текст: "$newText"');
+
+    // Если нет изменений, ничего не делаем
+    if (oldText == newText) {
+      print('Текст не изменился, выходим без изменений.');
+      return;
+    }
+
+    // Определяем тип изменения (добавление или удаление текста)
+    final isAddition = newText.length > oldText.length;
+    final isDeletion = newText.length < oldText.length;
+
+    // Используем алгоритм наибольшей общей подпоследовательности для определения
+    // позиции изменения, но это упрощенная версия
+    int commonPrefixLength = 0;
+    int minLength = min(oldText.length, newText.length);
+
+    // Ищем общий префикс
+    while (commonPrefixLength < minLength && oldText[commonPrefixLength] == newText[commonPrefixLength]) {
+      commonPrefixLength++;
+    }
+
+    print('Найден общий префикс длиной $commonPrefixLength символов');
+
+    // Если у нас добавление текста
+    if (isAddition) {
+      print('➕ Обнаружено добавление текста');
+
+      // Позиция, где был добавлен новый текст
+      final insertPosition = commonPrefixLength;
+      final addedLength = newText.length - oldText.length;
+      final addedText = newText.substring(insertPosition, insertPosition + addedLength);
+
+      print('Позиция вставки: $insertPosition');
+      print('Добавленный текст: "$addedText"');
+
+      // Создаем новые спаны
+      List<TextSpanDocument> newSpans = [];
+      int currentPos = 0;
+
+      for (int i = 0; i < element.spans.length; i++) {
+        final span = element.spans[i];
+        final spanStart = currentPos;
+        final spanEnd = currentPos + span.text.length;
+
+        print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+
+        // Если вставка произошла внутри этого спана
+        if (insertPosition >= spanStart && insertPosition <= spanEnd) {
+          print('Вставка произошла в спане #$i');
+
+          // Текст до вставки
+          if (insertPosition > spanStart) {
+            final beforeText = span.text.substring(0, insertPosition - spanStart);
+            newSpans.add(TextSpanDocument(text: beforeText, style: span.style));
+            print('Добавлен текст до вставки: "$beforeText" (тот же стиль)');
+          }
+
+          // Добавленный текст (с тем же стилем, что и спан, где произошла вставка)
+          newSpans.add(TextSpanDocument(text: addedText, style: span.style));
+          print('Добавлен новый текст: "$addedText" (стиль: bold=${span.style.bold}, italic=${span.style.italic})');
+
+          // Текст после вставки
+          if (insertPosition - spanStart < span.text.length) {
+            final afterText = span.text.substring(insertPosition - spanStart);
+            newSpans.add(TextSpanDocument(text: afterText, style: span.style));
+            print('Добавлен текст после вставки: "$afterText" (тот же стиль)');
+          }
+        }
+        // Если спан полностью до места вставки
+        else if (spanEnd <= insertPosition) {
+          newSpans.add(span);
+          print('Спан до места вставки, добавлен без изменений');
+        }
+        // Если спан полностью после места вставки
+        else {
+          final textAfterInsert = span.text;
+          newSpans.add(TextSpanDocument(text: textAfterInsert, style: span.style));
+          print('Спан после места вставки, добавлен с текстом: "$textAfterInsert"');
+        }
+
+        currentPos = spanEnd;
+      }
+
+      // Проверяем, что мы создали хотя бы один спан
+      if (newSpans.isEmpty) {
+        print('Не удалось создать спаны, используем стиль первого спана для всего текста');
+        final style = element.spans.isNotEmpty ? element.spans[0].style : TextStyleAttributes();
+        element.spans = [TextSpanDocument(text: newText, style: style)];
+      } else {
+        // Объединяем соседние спаны с одинаковыми стилями для оптимизации
+        element.spans = _mergeAdjacentSpans(newSpans);
+        print('Созданы новые спаны с сохранением форматирования (${element.spans.length})');
+      }
+    }
+    // Если у нас удаление текста
+    else if (isDeletion) {
+      print('➖ Обнаружено удаление текста');
+
+      // Ищем общий суффикс
+      int commonSuffixLength = 0;
+      while (commonSuffixLength < minLength &&
+          oldText[oldText.length - 1 - commonSuffixLength] == newText[newText.length - 1 - commonSuffixLength]) {
+        commonSuffixLength++;
+      }
+
+      // Определяем положение удаления
+      final deleteStart = commonPrefixLength;
+      final deleteEnd = oldText.length - commonSuffixLength;
+      final deletedText = oldText.substring(deleteStart, deleteEnd);
+
+      print('Позиция удаления: $deleteStart-$deleteEnd');
+      print('Удаленный текст: "$deletedText"');
+
+      // Строим новые спаны с учетом удаления
+      List<TextSpanDocument> newSpans = [];
+      int currentPos = 0;
+
+      for (int i = 0; i < element.spans.length; i++) {
+        final span = element.spans[i];
+        final spanStart = currentPos;
+        final spanEnd = currentPos + span.text.length;
+
+        print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+
+        // Спан полностью до удаления
+        if (spanEnd <= deleteStart) {
+          newSpans.add(span);
+          print('Спан до удаления, добавлен без изменений');
+        }
+        // Спан полностью после удаления
+        else if (spanStart >= deleteEnd) {
+          // Корректируем позицию для нового текста
+          final newSpanStart = spanStart - (deleteEnd - deleteStart);
+          final newText = span.text;
+          newSpans.add(TextSpanDocument(text: newText, style: span.style));
+          print('Спан после удаления, добавлен с текстом: "$newText"');
+        }
+        // Спан пересекается с удалением
+        else {
+          // Часть до удаления
+          if (spanStart < deleteStart) {
+            final beforeText = span.text.substring(0, deleteStart - spanStart);
+            newSpans.add(TextSpanDocument(text: beforeText, style: span.style));
+            print('Добавлена часть спана до удаления: "$beforeText"');
+          }
+
+          // Часть после удаления
+          if (spanEnd > deleteEnd) {
+            final afterText = span.text.substring(deleteEnd - spanStart);
+            newSpans.add(TextSpanDocument(text: afterText, style: span.style));
+            print('Добавлена часть спана после удаления: "$afterText"');
+          }
+        }
+
+        currentPos = spanEnd;
+      }
+
+      // Проверяем, что мы создали хотя бы один спан
+      if (newSpans.isEmpty) {
+        print('Не удалось создать спаны, используем стиль первого спана для всего текста');
+        final style = element.spans.isNotEmpty ? element.spans[0].style : TextStyleAttributes();
+        element.spans = [TextSpanDocument(text: newText, style: style)];
+      } else {
+        // Объединяем соседние спаны с одинаковыми стилями для оптимизации
+        element.spans = _mergeAdjacentSpans(newSpans);
+        print('Созданы новые спаны с сохранением форматирования (${element.spans.length})');
+      }
+    }
+    // В редких случаях, когда мы не можем точно определить изменение
+    else {
+      print('⚠️ Не удалось определить точный тип изменения');
+
+      // Сохраняем хотя бы текст
+      element.text = newText;
+    }
+
+    print('════════════════════════════════════════════');
+  }
+
+  // Объединяет соседние спаны с одинаковыми стилями
+  List<TextSpanDocument> _mergeAdjacentSpans(List<TextSpanDocument> spans) {
+    if (spans.length <= 1) return spans;
+
+    print('Объединение соседних спанов с одинаковыми стилями...');
+    final result = <TextSpanDocument>[];
+    TextSpanDocument? currentSpan;
+
+    for (final span in spans) {
+      if (currentSpan == null) {
+        currentSpan = span;
+      } else if (_areStylesEqual(currentSpan.style, span.style)) {
+        // Если стили одинаковые, объединяем текст
+        currentSpan = TextSpanDocument(text: currentSpan.text + span.text, style: currentSpan.style);
+        print('Объединены спаны с одинаковыми стилями: "${currentSpan.text}"');
+      } else {
+        // Если стили разные, добавляем текущий спан и начинаем новый
+        result.add(currentSpan);
+        currentSpan = span;
+      }
+    }
+
+    // Добавляем последний спан
+    if (currentSpan != null) {
+      result.add(currentSpan);
+    }
+
+    print('После объединения: было ${spans.length} спанов, стало ${result.length}');
+    return result;
+  }
+
+  // Проверяет, равны ли стили двух спанов
+  bool _areStylesEqual(TextStyleAttributes a, TextStyleAttributes b) {
+    return a.bold == b.bold &&
+        a.italic == b.italic &&
+        a.underline == b.underline &&
+        a.color == b.color &&
+        a.link == b.link &&
+        a.alignment == b.alignment;
+  }
+
+  void _addNewTextElement() {
+    final newTextElement = TextElement(text: '');
+    setState(() {
+      _document.addElement(newTextElement);
+      _selectedIndex = _document.elements.length - 1;
+      _notifyDocumentChanged();
+    });
+  }
+
+  // Удаляет элемент документа по индексу
+  void _removeElement(int index) {
+    if (index < 0 || index >= _document.elements.length) return;
+
+    setState(() {
+      // Запоминаем тип удаляемого элемента для логирования
+      final elementType = _document.elements[index] is TextElement ? 'текстовый блок' : 'изображение';
+      print('Удаляем $elementType с индексом $index');
+
+      // Удаляем элемент из документа
+      _document.elements.removeAt(index);
+
+      // Очищаем выделение, если был выбран удаляемый элемент
+      if (_selectedIndex == index) {
+        _selectedIndex = null;
+        _selection = null;
+      } else if (_selectedIndex != null && _selectedIndex! > index) {
+        // Если был выбран элемент после удаляемого, корректируем его индекс
+        _selectedIndex = _selectedIndex! - 1;
+      }
+
+      // Уведомляем об изменении документа
+      _notifyDocumentChanged();
+    });
+  }
+
+  // Уведомляем о изменении документа с небольшой задержкой
+  void _notifyDocumentChanged() {
+    Future.microtask(() {
+      if (mounted) {
+        widget.onDocumentChanged?.call(_document);
+      }
+    });
+  }
+
+  // Обработка изменения выделения текста
+  void _handleSelectionChanged(TextSelection selection) {
+    if (_selection?.start != selection.start || _selection?.end != selection.end) {
+      setState(() {
+        _selection = selection;
+
+        // Отладочная информация о выделении
+        print('Выделение: start=${selection.start}, end=${selection.end}');
+
+        // Проверим, действительно ли это выделение (не просто курсор)
+        if (selection.start != selection.end && _selectedIndex != null) {
+          print('Текст выделен от ${selection.start} до ${selection.end}');
+
+          // Проверим стиль текущего выделения для отладки
+          if (_document.elements[_selectedIndex!] is TextElement) {
+            final textElement = _document.elements[_selectedIndex!] as TextElement;
+            final style = textElement.styleAt(selection.start);
+            print(
+              'Стиль выделенного текста: bold=${style?.bold}, italic=${style?.italic}, underline=${style?.underline}',
+            );
+          }
+        }
+      });
+    }
+  }
+
+  // Обрабатывает тап по элементу изображения
+  void _handleImageTap(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  // Обрабатывает тап по параграфу изображения
+  void _handleParagraphTap(int index) {
+    setState(() {
+      _selectedIndex = index;
+    });
+  }
+
+  // Применяет форматирование к выделенному тексту
+  void _applyFormatting(TextStyleAttributes Function(TextStyleAttributes) styleUpdater) {
+    if (_selection == null || _selection!.start == _selection!.end || _selectedIndex == null) {
+      return;
+    }
+
+    if (_document.elements[_selectedIndex!] is TextElement) {
+      // Применяем стиль к текстовому элементу
+      final textElement = _document.elements[_selectedIndex!] as TextElement;
+      final currentStyle = textElement.styleAt(_selection!.start) ?? textElement.style;
+      final newStyle = styleUpdater(currentStyle);
+
+      setState(() {
+        textElement.applyStyle(newStyle, _selection!.start, _selection!.end);
+        _notifyDocumentChanged();
+      });
+    }
+  }
+
+  // Сбрасывает форматирование выделенного текста
+  void _clearFormatting() {
+    if (_selection == null || _selection!.start == _selection!.end || _selectedIndex == null) {
+      return;
+    }
+
+    if (_document.elements[_selectedIndex!] is TextElement) {
+      final textElement = _document.elements[_selectedIndex!] as TextElement;
+
+      print('════════════════════════════════════════════');
+      print('🧹 СБРОС ФОРМАТИРОВАНИЯ:');
+      print('Диапазон: ${_selection!.start}-${_selection!.end}');
+
+      // Создаем стиль без форматирования
+      final plainStyle = TextStyleAttributes(bold: false, italic: false, underline: false, link: null);
+
+      print('Новый стиль: bold=false, italic=false, underline=false, link=null');
+
+      setState(() {
+        textElement.applyStyle(plainStyle, _selection!.start, _selection!.end);
+        _notifyDocumentChanged();
+
+        print('Форматирование сброшено.');
+        print('════════════════════════════════════════════');
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final editorTheme = EditorThemeExtension.of(context);
+
+    return Column(
+      children: [
+        Container(
+          padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
+          decoration: BoxDecoration(
+            color: editorTheme.toolbarColor,
+            borderRadius: BorderRadius.circular(editorTheme.borderRadius),
+            border: Border.all(color: editorTheme.borderColor),
+          ),
+          child: EditorToolbar(
+            onBoldPressed: () => _applyFormatting((style) => style.copyWith(bold: !style.bold)),
+            onItalicPressed: () => _applyFormatting((style) => style.copyWith(italic: !style.italic)),
+            onUnderlinePressed: () => _applyFormatting((style) => style.copyWith(underline: !style.underline)),
+            onClearFormattingPressed: _clearFormatting,
+            onAddImagePressed: _addImage,
+            onAddTextPressed: _addNewTextElement,
+          ),
+        ),
+        if (_selectedIndex != null && _document.elements[_selectedIndex!] is ImageElement)
+          _buildImageFloatToolbar(),
+        Expanded(
+          child: Container(
+            margin: const EdgeInsets.only(top: 8.0),
+            padding: EdgeInsets.all(editorTheme.elementSpacing),
+            decoration: BoxDecoration(
+              color: editorTheme.backgroundColor,
+              border: Border.all(color: editorTheme.borderColor),
+              borderRadius: editorTheme.containerBorderRadius,
+              boxShadow: [editorTheme.containerShadow],
+            ),
+            child: _buildReorderableDocumentView(),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // Панель инструментов для управления положением изображения
+  Widget _buildImageFloatToolbar() {
+    final editorTheme = EditorThemeExtension.of(context);
+
+    return Container(
+      padding: const EdgeInsets.symmetric(vertical: 8.0),
+      decoration: BoxDecoration(
+        color: editorTheme.toolbarColor,
+        borderRadius: BorderRadius.circular(editorTheme.borderRadius),
+        border: Border.all(color: editorTheme.borderColor),
+      ),
+      margin: const EdgeInsets.symmetric(vertical: 8.0),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            'Положение изображения: ',
+            style: TextStyle(fontWeight: FontWeight.bold, color: editorTheme.defaultTextStyle.color),
+          ),
+          const SizedBox(width: 16),
+          ToggleButtons(
+            isSelected: [
+              _currentImageFloat == FCFloat.start,
+              _currentImageFloat == FCFloat.none,
+              _currentImageFloat == FCFloat.end,
+            ],
+            onPressed: (index) {
+              setState(() {
+                if (index == 0)
+                  _currentImageFloat = FCFloat.start;
+                else if (index == 1)
+                  _currentImageFloat = FCFloat.none;
+                else if (index == 2)
+                  _currentImageFloat = FCFloat.end;
+
+                // Обновляем положение текущего выбранного изображения
+                if (_selectedIndex != null && _document.elements[_selectedIndex!] is ImageElement) {
+                  final imageElement = _document.elements[_selectedIndex!] as ImageElement;
+
+                  AlignmentGeometry alignment;
+                  if (_currentImageFloat == FCFloat.start)
+                    alignment = Alignment.centerLeft;
+                  else if (_currentImageFloat == FCFloat.end)
+                    alignment = Alignment.centerRight;
+                  else
+                    alignment = Alignment.center;
+
+                  // Используем copyWith для сохранения всех свойств
+                  _updateImageElement(_selectedIndex!, imageElement.copyWith(alignment: alignment));
+                }
+              });
+            },
+            borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2),
+            selectedColor: editorTheme.toolbarSelectedIconColor,
+            color: editorTheme.toolbarIconColor,
+            fillColor: editorTheme.selectedBackgroundColor,
+            children: const [
+              Icon(Icons.format_align_left),
+              Icon(Icons.format_align_center),
+              Icon(Icons.format_align_right),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Создает перетаскиваемый список элементов документа
+  Widget _buildReorderableDocumentView() {
+    // Подготавливаем список виджетов для ReorderableListView
+    final List<Widget> documentBlocks = [];
+
+    for (int i = 0; i < _document.elements.length; i++) {
+      final element = _document.elements[i];
+
+      if (element is TextElement) {
+        // Добавляем текстовый блок
+        documentBlocks.add(_buildDraggableTextBlock(element, i));
+      } else if (element is ImageElement) {
+        // Добавляем блок изображения
+        documentBlocks.add(_buildDraggableImageBlock(element, i));
+      }
+    }
+
+    // Используем ScrollView вокруг ReorderableListView для корректной прокрутки
+    return ReorderableListView.builder(
+      buildDefaultDragHandles: false, // Отключаем скролл внутри ListView
+      itemCount: documentBlocks.length,
+      itemBuilder:
+          (context, index) =>
+              Container(key: ValueKey('$index'), padding: EdgeInsets.only(bottom: 16), child: documentBlocks[index]),
+      proxyDecorator: (child, index, animation) {
+        return AnimatedBuilder(
+          animation: animation,
+          builder: (BuildContext context, Widget? _) {
+            final double animValue = Curves.easeInOut.transform(animation.value);
+            final double elevation = lerpDouble(0, 8, animValue)!;
+            final double scale = lerpDouble(1, 1.02, animValue)!;
+
+            return Container(
+              margin: const EdgeInsets.only(bottom: 16.0),
+              child: Transform.scale(
+                scale: scale,
+                child: Material(
+                  elevation: elevation,
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(4.0),
+                  child: documentBlocks[index],
+                ),
+              ),
+            );
+          },
+          child: child,
+        );
+      },
+      onReorder: (oldIndex, newIndex) {
+        setState(() {
+          // Корректируем индекс, если перемещаем вниз
+          if (oldIndex < newIndex) {
+            newIndex -= 1;
+          }
+
+          // Перемещаем элемент в документе
+          final item = _document.elements.removeAt(oldIndex);
+          _document.elements.insert(newIndex, item);
+
+          // Обновляем выделенный индекс, если он изменился
+          if (_selectedIndex == oldIndex) {
+            _selectedIndex = newIndex;
+          } else if (_selectedIndex != null) {
+            if (_selectedIndex! > oldIndex && _selectedIndex! <= newIndex) {
+              _selectedIndex = _selectedIndex! - 1;
+            } else if (_selectedIndex! < oldIndex && _selectedIndex! >= newIndex) {
+              _selectedIndex = _selectedIndex! + 1;
+            }
+          }
+
+          // Уведомляем о изменении документа
+          _notifyDocumentChanged();
+        });
+      },
+      footer: Padding(
+        padding: const EdgeInsets.only(top: 16.0),
+        child: Center(
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              OutlinedButton.icon(
+                icon: const Icon(Icons.add),
+                label: const Text('Добавить блок текста'),
+                onPressed: _addNewTextElement,
+              ),
+              const SizedBox(width: 16.0),
+              OutlinedButton.icon(
+                icon: const Icon(Icons.image),
+                label: const Text('Добавить изображение'),
+                onPressed: _addImage,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  // Создает текстовый блок с возможностью перетаскивания
+  Widget _buildDraggableTextBlock(TextElement element, int index) {
+    final isSelected = _selectedIndex == index;
+
+    return Container(
+      key: ValueKey('text_$index'),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: isSelected ? Colors.blue.withOpacity(0.5) : Colors.grey.withOpacity(0.2),
+          width: isSelected ? 2.0 : 1.0,
+        ),
+        borderRadius: BorderRadius.circular(4.0),
+        color: isSelected ? Colors.blue.withOpacity(0.05) : Colors.transparent,
+      ),
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 24.0 + 8, right: 8.0, top: 8.0, bottom: 8.0),
+            child: TextEditor(
+              text: element.text,
+              style: element.style,
+              spans: element.spans,
+              isSelected: isSelected,
+              onTap: () {
+                setState(() {
+                  _selectedIndex = index;
+                });
+              },
+              onTextChanged: (text) => _updateTextElement(index, text),
+              onSpansChanged: (newSpans) {
+                // Обновляем spans в TextElement напрямую
+                if (index >= 0 && index < _document.elements.length && _document.elements[index] is TextElement) {
+                  setState(() {
+                    final textElement = _document.elements[index] as TextElement;
+                    textElement.spans = newSpans;
+                    _notifyDocumentChanged();
+                  });
+                }
+              },
+              onSelectionChanged: _handleSelectionChanged,
+              onDelete: () => _removeElement(index),
+            ),
+          ),
+          // Рукоятка для перетаскивания
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: ReorderableDragStartListener(
+              index: index,
+              child: Container(
+                width: 24.0,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(3.0),
+                    bottomLeft: Radius.circular(3.0),
+                  ),
+                ),
+                child: Icon(
+                  Icons.drag_handle,
+                  size: 16.0,
+                  color: isSelected ? Colors.blue.withOpacity(0.7) : Colors.grey.withOpacity(0.7),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // Создает блок изображения с возможностью перетаскивания
+  Widget _buildDraggableImageBlock(ImageElement element, int index) {
+    final isSelected = _selectedIndex == index;
+
+    // Определяем float на основе выравнивания
+    FCFloat float;
+    if (element.alignment == Alignment.centerLeft)
+      float = FCFloat.start;
+    else if (element.alignment == Alignment.centerRight)
+      float = FCFloat.end;
+    else
+      float = FCFloat.none;
+
+    // Определяем отступы в зависимости от положения
+    EdgeInsets padding;
+    if (float == FCFloat.start) {
+      padding = const EdgeInsets.only(right: 16.0, bottom: 8.0);
+    } else if (float == FCFloat.end) {
+      padding = const EdgeInsets.only(left: 16.0, bottom: 8.0);
+    } else {
+      padding = const EdgeInsets.only(bottom: 8.0);
+    }
+
+    return Container(
+      key: ValueKey('image_$index'),
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: isSelected ? Colors.blue.withOpacity(0.5) : Colors.grey.withOpacity(0.2),
+          width: isSelected ? 2.0 : 1.0,
+        ),
+        borderRadius: BorderRadius.circular(4.0),
+        color: isSelected ? Colors.blue.withOpacity(0.05) : Colors.transparent,
+      ),
+      child: Stack(
+        children: [
+          Padding(
+            padding: const EdgeInsets.only(left: 24.0 + 8, right: 8.0, top: 8.0, bottom: 8.0),
+            child: Floatable(
+              float: float,
+              padding: padding,
+              maxWidthPercentage: _calculateMaxWidthPercentage(element, float),
+              child: ImageEditor(
+                imageElement: element,
+                isSelected: isSelected,
+                onTap: () {
+                  setState(() {
+                    _selectedIndex = index;
+
+                    // Обновляем текущий float для панели инструментов
+                    if (element.alignment == Alignment.centerLeft)
+                      _currentImageFloat = FCFloat.start;
+                    else if (element.alignment == Alignment.centerRight)
+                      _currentImageFloat = FCFloat.end;
+                    else
+                      _currentImageFloat = FCFloat.none;
+                  });
+                },
+                onImageChanged: (newImage) => _updateImageElement(index, newImage),
+                onDelete: () => _removeElement(index),
+              ),
+            ),
+          ),
+          // Рукоятка для перетаскивания
+          Positioned(
+            left: 0,
+            top: 0,
+            bottom: 0,
+            child: ReorderableDragStartListener(
+              index: index,
+              child: Container(
+                width: 24.0,
+                alignment: Alignment.center,
+                decoration: BoxDecoration(
+                  color: isSelected ? Colors.blue.withOpacity(0.1) : Colors.grey.withOpacity(0.1),
+                  borderRadius: const BorderRadius.only(
+                    topLeft: Radius.circular(3.0),
+                    bottomLeft: Radius.circular(3.0),
+                  ),
+                ),
+                child: Icon(
+                  Icons.drag_handle,
+                  size: 16.0,
+                  color: isSelected ? Colors.blue.withOpacity(0.7) : Colors.grey.withOpacity(0.7),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  List<Widget> _buildDocumentElements() {
+    final List<Widget> elements = [];
+    final List<InlineSpan> spans = [];
+    final editorTheme = EditorThemeExtension.of(context);
+
+    bool hasActiveFloatable = false; // Флаг, показывающий, есть ли активный Floatable
+
+    for (int i = 0; i < _document.elements.length; i++) {
+      final element = _document.elements[i];
+
+      if (element is TextElement) {
+        // Добавляем текст как WidgetSpan
+        spans.add(
+          WidgetSpan(
+            child: Container(
+              margin: EdgeInsets.only(bottom: editorTheme.elementSpacing),
+              child: TextEditor(
+                key: ValueKey('text_$i'),
+                text: element.text,
+                style: element.style,
+                spans: element.spans,
+                isSelected: _selectedIndex == i,
+                onTap: () {
+                  setState(() {
+                    _selectedIndex = i;
+                  });
+                },
+                onTextChanged: (text) => _updateTextElement(i, text),
+                onSpansChanged: (newSpans) {
+                  // Обновляем spans в TextElement напрямую
+                  if (i >= 0 && i < _document.elements.length && _document.elements[i] is TextElement) {
+                    setState(() {
+                      final textElement = _document.elements[i] as TextElement;
+                      textElement.spans = newSpans;
+                      _notifyDocumentChanged();
+                    });
+                  }
+                },
+                onSelectionChanged: _handleSelectionChanged,
+                onDelete: () => _removeElement(i),
+              ),
+            ),
+          ),
+        );
+      } else if (element is ImageElement) {
+        // Определяем float на основе выравнивания
+        FCFloat float;
+        if (element.alignment == Alignment.centerLeft)
+          float = FCFloat.start;
+        else if (element.alignment == Alignment.centerRight)
+          float = FCFloat.end;
+        else
+          float = FCFloat.none;
+
+        // Определяем отступы в зависимости от положения
+        EdgeInsets padding;
+        if (float == FCFloat.start) {
+          padding = EdgeInsets.only(right: editorTheme.elementSpacing, bottom: editorTheme.elementSpacing);
+        } else if (float == FCFloat.end) {
+          padding = EdgeInsets.only(left: editorTheme.elementSpacing, bottom: editorTheme.elementSpacing);
+        } else {
+          padding = EdgeInsets.only(bottom: editorTheme.elementSpacing);
+        }
+
+        // Добавляем изображение как Floatable внутри WidgetSpan
+        spans.add(
+          WidgetSpan(
+            child: Floatable(
+              key: ValueKey('image_$i'),
+              float: float,
+              padding: padding,
+              // Устанавливаем максимальную ширину для обтекания текстом в зависимости от типа размера изображения
+              maxWidthPercentage: _calculateMaxWidthPercentage(element, float),
+              child: Container(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: _selectedIndex == i ? editorTheme.selectedBorderColor : editorTheme.borderColor,
+                    width: _selectedIndex == i ? 2.0 : 1.0,
+                  ),
+                  borderRadius: editorTheme.containerBorderRadius,
+                  color: _selectedIndex == i ? editorTheme.selectedBackgroundColor : Colors.transparent,
+                ),
+                child: ImageEditor(
+                  imageElement: element,
+                  isSelected: _selectedIndex == i,
+                  onTap: () {
+                    setState(() {
+                      _selectedIndex = i;
+
+                      // Обновляем текущий float для панели инструментов
+                      if (element.alignment == Alignment.centerLeft)
+                        _currentImageFloat = FCFloat.start;
+                      else if (element.alignment == Alignment.centerRight)
+                        _currentImageFloat = FCFloat.end;
+                      else
+                        _currentImageFloat = FCFloat.none;
+                    });
+                  },
+                  onImageChanged: (newImage) => _updateImageElement(i, newImage),
+                  onDelete: () => _removeElement(i),
+                ),
+              ),
+            ),
+          ),
+        );
+      }
+    }
+
+    // Добавляем оставшиеся spans, если они есть
+    if (spans.isNotEmpty) {
+      elements.add(Text.rich(TextSpan(children: spans)));
+    }
+
+    // Если у нас нет текущего Floatable, используем обычную колонку вместо FloatColumn
+    if (!hasActiveFloatable) {
+      return [Column(crossAxisAlignment: CrossAxisAlignment.start, children: elements)];
+    }
+
+    // Иначе используем FloatColumn
+    return elements;
+  }
+
+  // Рассчитывает maxWidthPercentage для Floatable в зависимости от типа размера изображения
+  double _calculateMaxWidthPercentage(ImageElement imageElement, FCFloat float) {
+    // Если изображение выровнено по центру (нет обтекания), используем всю ширину
+    if (float == FCFloat.none) {
+      return 1.0;
+    }
+
+    // Получаем ширину экрана
+    final screenWidth = MediaQuery.of(context).size.width;
+
+    // В зависимости от типа размера выбираем значение maxWidthPercentage
+    switch (imageElement.sizeType) {
+      case 'original':
+        // Для оригинального размера рассчитываем процент от ширины экрана без ограничений
+        final imageWidth = imageElement.width;
+
+        // Рассчитываем точный процент относительно ширины экрана
+        return imageWidth / screenWidth;
+
+      case 'screen':
+        // Для процента от экрана используем точное значение, указанное пользователем
+        // Преобразуем процент (0-100) в долю (0.0-1.0)
+        return imageElement.sizePercent / 100;
+
+      default:
+        // По умолчанию используем 40% от ширины экрана
+        return 0.4;
+    }
+  }
+}
