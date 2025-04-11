@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart' hide TextSpan;
 import 'package:flutter_editor/flutter_editor.dart';
-import '../editor/custom_editor.dart';
 
 /// Пример интеграции редактора в другое приложение с пользовательской темой
 class EditorIntegrationExample extends StatelessWidget {

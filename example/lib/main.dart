@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_editor/flutter_editor.dart';
-import 'editor/custom_editor.dart';
 import 'screens/document_preview_screen.dart';
 
 void main() {

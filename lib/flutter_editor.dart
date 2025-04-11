@@ -4,3 +4,4 @@ export 'src/widgets/toolbar.dart';
 export 'src/widgets/text_editor.dart';
 export 'src/widgets/image_editor.dart';
 export 'src/widgets/document_viewer.dart';
+export 'src/editor/custom_editor.dart';
