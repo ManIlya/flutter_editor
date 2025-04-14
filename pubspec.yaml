@@ -1,7 +1,9 @@
 name: flutter_editor
 description: "A new Flutter package project."
 version: 0.0.1
-homepage:
+publish_to: https://pub.fittin.ru
+homepage: https://github.com/ManIlya/flutter_editor.git
+repository: https://github.com/ManIlya/flutter_editor.git
 
 environment:
   sdk: ^3.7.2

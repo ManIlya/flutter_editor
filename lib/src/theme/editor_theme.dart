@@ -158,7 +158,7 @@ class EditorThemeExtension extends ThemeExtension<EditorThemeExtension> {
     elementSpacing: 16.0,
     containerBorderRadius: BorderRadius.circular(8.0),
     containerShadow: BoxShadow(color: Colors.black12, offset: Offset(0, 2), blurRadius: 4.0),
-    defaultTextStyle: TextStyle(fontSize: 16.0, color: Colors.black87),
+    defaultTextStyle: TextStyle(fontSize: 14.0, color: Colors.black87),
     titleTextStyle: TextStyle(fontSize: 24.0, fontWeight: FontWeight.bold, color: Colors.black87),
     subtitleTextStyle: TextStyle(fontSize: 20.0, fontWeight: FontWeight.w500, color: Colors.black87),
     captionTextStyle: TextStyle(fontStyle: FontStyle.italic, fontSize: 12.0, color: Colors.grey),
@@ -184,7 +184,7 @@ class EditorThemeExtension extends ThemeExtension<EditorThemeExtension> {
     elementSpacing: 16.0,
     containerBorderRadius: BorderRadius.circular(8.0),
     containerShadow: BoxShadow(color: Colors.black, offset: Offset(0, 2), blurRadius: 4.0),
-    defaultTextStyle: TextStyle(fontSize: 16.0, color: Colors.white),
+    defaultTextStyle: TextStyle(fontSize: 1.0, color: Colors.white),
     titleTextStyle: TextStyle(fontSize: 24.0, fontWeight: FontWeight.bold, color: Colors.white),
     subtitleTextStyle: TextStyle(fontSize: 20.0, fontWeight: FontWeight.w500, color: Colors.white),
     captionTextStyle: TextStyle(fontStyle: FontStyle.italic, fontSize: 12.0, color: Colors.grey.shade400),
@@ -249,7 +249,7 @@ class EditorThemeExtension extends ThemeExtension<EditorThemeExtension> {
     );
 
     // Настройка стилей текста
-    final baseDefaultTextStyle = TextStyle(fontSize: 16.0, color: textColor);
+    final baseDefaultTextStyle = TextStyle(fontSize: 14.0, color: textColor);
 
     final baseTitleTextStyle = TextStyle(fontSize: 24.0, fontWeight: FontWeight.bold, color: textColor);
 

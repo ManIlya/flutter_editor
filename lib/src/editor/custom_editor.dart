@@ -30,7 +30,7 @@ class CustomEditor extends StatefulWidget {
   final FileToUrlConverter? fileToUrlConverter;
 
   /// Список пользовательских иконок для панели инструментов
-  final List<CustomToolbarItem>? customToolbarItems;
+  final List<Widget>? customToolbarItems;
 
   /// Высота области редактирования в пикселях
   /// Если не указано (null), будет использована вся доступная высота

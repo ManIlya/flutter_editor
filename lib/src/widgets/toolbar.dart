@@ -107,7 +107,7 @@ class EditorToolbar extends StatelessWidget {
   final VoidCallback? onAddTextPressed;
 
   /// Список пользовательских элементов тулбара
-  final List<CustomToolbarItem>? customToolbarItems;
+  final List<Widget>? customToolbarItems;
 
   /// Текущий контекст выделения в редакторе
   final EditorSelectionContext selectionContext;
@@ -178,27 +178,7 @@ class EditorToolbar extends StatelessWidget {
           const SizedBox(width: 16),
 
           // Добавляем каждую пользовательскую иконку
-          ...customToolbarItems!.map(
-            (item) => IconButton(
-              icon: Icon(item.icon),
-              tooltip: item.tooltip,
-              onPressed: () {
-                // Если есть обработчик с контекстом и иконка активна для текущего контекста
-                if (item.onAction != null && item.isEnabledForContext(selectionContext)) {
-                  item.onAction!(selectionContext);
-                }
-                // Если есть обычный обработчик нажатия
-                else if (item.onPressed != null) {
-                  item.onPressed!();
-                }
-              },
-              // Тускнеем иконку, если она не активна для текущего контекста
-              color:
-                  item.isEnabledForContext(selectionContext)
-                      ? (item.color ?? Colors.grey.shade800)
-                      : Colors.grey.shade400,
-            ),
-          ),
+          ...customToolbarItems!,
         ],
       ],
     );

@@ -165,46 +165,8 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
   }
 
   // Создаем список пользовательских иконок для тулбара
-  List<CustomToolbarItem> _buildCustomToolbarItems() {
+  List<Widget> _buildCustomToolbarItems() {
     return [
-      // Иконка для изменения цвета текста (активна только для текста)
-      CustomToolbarItem(
-        icon: Icons.format_color_text,
-        tooltip: 'Сделать текст красным',
-        onAction: _handleColorText,
-        color: Colors.red,
-        enableOnlyWithSelection: true,
-        enabledForTypes: {SelectedElementType.text},
-      ),
-
-      // Иконка для изменения размера изображения (активна только для изображений)
-      CustomToolbarItem(
-        icon: Icons.photo_size_select_small,
-        tooltip: 'Уменьшить изображение',
-        onAction: _handleProcessImage,
-        enableOnlyWithSelection: true,
-        enabledForTypes: {SelectedElementType.image},
-      ),
-
-      // Универсальная иконка, доступная всегда
-      CustomToolbarItem(
-        icon: Icons.info_outline,
-        tooltip: 'Справка',
-        onPressed: () {
-          showDialog(
-            context: context,
-            builder:
-                (context) => AlertDialog(
-                  title: const Text('Справка по редактору'),
-                  content: const Text(
-                    'Это пример пользовательской иконки тулбара, которая доступна всегда.\n\n'
-                    'Другие иконки активны только при выделении соответствующего типа контента (текст или изображение).',
-                  ),
-                  actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Закрыть'))],
-                ),
-          );
-        },
-      ),
     ];
   }
 

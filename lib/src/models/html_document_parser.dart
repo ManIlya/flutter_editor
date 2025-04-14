@@ -204,7 +204,7 @@ class HtmlDocumentParser {
 
         // Извлечение цвета текста
         final colorRegex = RegExp(
-          r'color: (#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[0-9.]+\s*)?\))',
+          r'(?<!\w-)color: (#[0-9a-fA-F]{6}|#[0-9a-fA-F]{3}|rgba?\(\s*\d+\s*,\s*\d+\s*,\s*\d+\s*(,\s*[0-9.]+\s*)?\))',
         );
         final colorMatch = colorRegex.firstMatch(nodeStyle);
         if (colorMatch != null && colorMatch.groupCount >= 1) {
