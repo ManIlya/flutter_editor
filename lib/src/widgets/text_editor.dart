@@ -1450,8 +1450,11 @@ class StyledTextEditingController extends TextEditingController {
 
         _log('Обработка спана #$i: "$span.text" позиция [$spanStart-$spanEnd]');
 
-        // Если вставка произошла в этом спане
-        if (insertPos >= spanStart && insertPos <= spanEnd) {
+        // Проверяем, находится ли позиция вставки точно на границе между спанами
+        bool isAtBoundary = insertPos == spanEnd && i < oldSpans.length - 1;
+
+        // Если вставка произошла внутри этого спана или это последний спан с вставкой на его границе
+        if ((insertPos >= spanStart && insertPos < spanEnd) || (insertPos == spanEnd && i == oldSpans.length - 1)) {
           _log('Вставка произошла в этом спане.');
           // Запоминаем стиль для новых символов
           styleAtInsert = span.style;
@@ -1484,7 +1487,13 @@ class StyledTextEditingController extends TextEditingController {
             newSpans.add(doc.TextSpanDocument(text: afterInsert, style: span.style));
             _log('Создан спан ПОСЛЕ вставки: "$afterInsert"');
           }
-        } else if (spanStart >= insertPos) {
+        } else if (isAtBoundary) {
+          // Если вставка происходит точно на границе между спанами,
+          // мы просто добавляем текущий спан без изменений.
+          // Новый текст будет добавлен при обработке следующего спана.
+          newSpans.add(span);
+          _log('Спан до места вставки (на границе), добавляем без изменений');
+        } else if (spanStart > insertPos) {
           // Спан после места вставки
           newSpans.add(span);
           _log('Спан после места вставки, добавляем без изменений');
@@ -1516,8 +1525,124 @@ class StyledTextEditingController extends TextEditingController {
       _log('➖ Обнаружено удаление текста.');
       _log('Удалено символов: ${oldText.length - newText.length}');
 
-      // Для удаления просто перестраиваем spans на основе нового текста
-      // Попытка сохранить максимум форматирования
+      // Более точный алгоритм обнаружения места удаления
+      int deleteStartOffset = -1;
+      int deleteLength = oldText.length - newText.length;
+
+      // Найдем общий префикс
+      int commonPrefixLength = 0;
+      int minLength = Math.min(oldText.length, newText.length);
+      while (commonPrefixLength < minLength && oldText[commonPrefixLength] == newText[commonPrefixLength]) {
+        commonPrefixLength++;
+      }
+
+      // Найдем общий суффикс, но только если есть общий префикс
+      int commonSuffixLength = 0;
+      if (commonPrefixLength < minLength) {
+        while (commonSuffixLength < minLength - commonPrefixLength &&
+            oldText[oldText.length - 1 - commonSuffixLength] == newText[newText.length - 1 - commonSuffixLength]) {
+          commonSuffixLength++;
+        }
+      }
+
+      // Определяем место удаления
+      deleteStartOffset = commonPrefixLength;
+
+      _log('Обнаружено удаление в позиции $deleteStartOffset длиной $deleteLength');
+      _log('Общий префикс длиной $commonPrefixLength, общий суффикс длиной $commonSuffixLength');
+
+      if (deleteStartOffset >= 0) {
+        // Создаем новые spans с учетом удаления
+        List<doc.TextSpanDocument> newSpans = [];
+        int currentPosition = 0;
+
+        for (int i = 0; i < oldSpans.length; i++) {
+          final span = oldSpans[i];
+          final spanStart = currentPosition;
+          final spanEnd = spanStart + span.text.length;
+
+          _log('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+
+          // Удаление полностью до этого спана
+          if (deleteStartOffset >= spanEnd) {
+            newSpans.add(span);
+            _log('Спан до удаления, добавляем без изменений');
+          }
+          // Удаление полностью после этого спана
+          else if (deleteStartOffset + deleteLength <= spanStart) {
+            // Добавляем спан со смещением позиции
+            newSpans.add(doc.TextSpanDocument(text: span.text, style: span.style));
+            _log('Спан после удаления, добавляем без изменений');
+          }
+          // Удаление затрагивает этот спан
+          else {
+            // Начало удаления внутри этого спана
+            if (deleteStartOffset > spanStart && deleteStartOffset < spanEnd) {
+              // Часть до удаления
+              final beforeText = span.text.substring(0, deleteStartOffset - spanStart);
+              if (beforeText.isNotEmpty) {
+                newSpans.add(doc.TextSpanDocument(text: beforeText, style: span.style));
+                _log('Добавлена часть спана до удаления: "$beforeText"');
+              }
+
+              // Если удаление заканчивается в этом спане
+              if (deleteStartOffset + deleteLength < spanEnd) {
+                final afterText = span.text.substring(deleteStartOffset - spanStart + deleteLength);
+                if (afterText.isNotEmpty) {
+                  newSpans.add(doc.TextSpanDocument(text: afterText, style: span.style));
+                  _log('Добавлена часть спана после удаления: "$afterText"');
+                }
+              }
+            }
+            // Начало удаления до этого спана, но конец удаления внутри спана
+            else if (deleteStartOffset <= spanStart && deleteStartOffset + deleteLength < spanEnd) {
+              final afterText = span.text.substring(deleteStartOffset + deleteLength - spanStart);
+              if (afterText.isNotEmpty) {
+                newSpans.add(doc.TextSpanDocument(text: afterText, style: span.style));
+                _log('Добавлена часть спана после удаления: "$afterText"');
+              }
+            }
+            // Удаление полностью содержит этот спан
+            else if (deleteStartOffset <= spanStart && deleteStartOffset + deleteLength >= spanEnd) {
+              _log('Спан полностью удален');
+              // Ничего не добавляем, так как спан полностью удален
+            }
+          }
+
+          currentPosition = spanEnd;
+        }
+
+        // Проверяем, что мы создали хотя бы один спан
+        if (newSpans.isEmpty) {
+          _log('⚠️ Все спаны были удалены. Создаем один спан с оставшимся текстом.');
+          // Используем стиль первого спана для оставшегося текста
+          final style = oldSpans[0].style;
+          return [doc.TextSpanDocument(text: newText, style: style)];
+        }
+
+        // Проверяем, весь ли текст учтен
+        String reconstructedText = newSpans.map((s) => s.text).join();
+        if (reconstructedText.length != newText.length) {
+          _log(
+            '⚠️ Реконструированный текст (${reconstructedText.length}) не соответствует новому тексту (${newText.length})',
+          );
+          _log('Реконструированный: "$reconstructedText"');
+          _log('Новый: "$newText"');
+
+          // Если текст не совпадает, сохраняем хотя бы стили существующих спанов
+          final style = oldSpans[0].style;
+          return [doc.TextSpanDocument(text: newText, style: style)];
+        }
+
+        // Объединяем соседние спаны с одинаковым стилем
+        final result = _mergeAdjacentSpans(newSpans);
+        _log('Объединены смежные спаны с одинаковым стилем. Финальное количество: ${result.length}');
+        _log('════════════════════════════════════════════');
+        return result;
+      }
+
+      // Если не удалось определить место удаления точно, используем старый алгоритм
+      _log('Используем запасной алгоритм для удаления...');
 
       // Текущая позиция в тексте
       int oldPos = 0;
