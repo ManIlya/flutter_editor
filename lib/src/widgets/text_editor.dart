@@ -17,6 +17,9 @@ class TextEditor extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback? onDelete;
 
+  /// Включает подробное логирование для отладки
+  final bool enableLogging;
+
   const TextEditor({
     super.key,
     required this.text,
@@ -28,6 +31,7 @@ class TextEditor extends StatefulWidget {
     this.onSpansChanged,
     required this.onTap,
     this.onDelete,
+    this.enableLogging = false,
   });
 
   @override
@@ -41,6 +45,13 @@ class _TextEditorState extends State<TextEditor> {
   // Последнее известное выделение
   TextSelection? _lastKnownSelection;
 
+  // Вспомогательный метод для логирования
+  void _log(String message) {
+    if (widget.enableLogging) {
+      print(message);
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -48,6 +59,7 @@ class _TextEditorState extends State<TextEditor> {
       text: widget.text,
       spans: widget.spans,
       styleAttributesToTextStyle: _getFlutterTextStyle,
+      enableLogging: widget.enableLogging,
     );
     _focusNode = FocusNode();
 
@@ -63,19 +75,18 @@ class _TextEditorState extends State<TextEditor> {
   void _onControllerChanged() {
     // Проверяем, изменился ли текст
     if (widget.text != _controller.text) {
-      print('Текст изменился с "${widget.text}" на "${_controller.text}"');
+      _log('Текст изменился с "${widget.text}" на "${_controller.text}"');
 
       // Отложенное уведомление об изменении текста
       Future.microtask(() {
         if (mounted) {
           // Обновляем spans перед изменением текста
           final spans = _controller.getSpans();
-          print('Сохранено состояние spans перед уведомлением об изменении текста.');
-          _controller.logSpansStructure();
+          _log('Сохранено состояние spans перед уведомлением об изменении текста.');
 
           // Сохраняем текущее выделение
           final selection = _controller.selection;
-          print('Сохранено выделение: start=${selection.start}, end=${selection.end}');
+          _log('Сохранено выделение: start=${selection.start}, end=${selection.end}');
 
           // Уведомляем об изменении текста
           widget.onTextChanged(_controller.text);
@@ -83,12 +94,12 @@ class _TextEditorState extends State<TextEditor> {
           // Обновляем spans после изменения текста
           if (widget.onSpansChanged != null) {
             widget.onSpansChanged!(spans);
-            print('Отправлены обновленные spans в родительский виджет.');
+            _log('Отправлены обновленные spans в родительский виджет.');
           }
 
           // Восстанавливаем выделение, если оно изменилось
           if (_controller.selection != selection) {
-            print('Восстанавливаем выделение: ${selection.start}-${selection.end}');
+            _log('Восстанавливаем выделение: ${selection.start}-${selection.end}');
             _controller.selection = selection;
           }
         }
@@ -103,7 +114,7 @@ class _TextEditorState extends State<TextEditor> {
       Future.microtask(() {
         if (mounted) {
           widget.onSelectionChanged(_controller.selection);
-          print(
+          _log(
             'Выделение в TextField обновлено: ${_controller.selection.baseOffset}-${_controller.selection.extentOffset}',
           );
         }
@@ -128,7 +139,7 @@ class _TextEditorState extends State<TextEditor> {
             widget.onSelectionChanged(_controller.selection);
 
             // Для отладки
-            print(
+            _log(
               'Выделение в TextField обновлено: ${_controller.selection.baseOffset}-${_controller.selection.extentOffset}',
             );
           }
@@ -418,7 +429,16 @@ class _TextEditorState extends State<TextEditor> {
       textCapitalization: TextCapitalization.sentences,
       style: TextStyle(fontSize: widget.style.fontSize),
       textAlign: textAlignment, // Применяем выравнивание
-      decoration: InputDecoration(border: InputBorder.none, isDense: true, contentPadding: EdgeInsets.zero),
+      decoration: InputDecoration(
+        border: InputBorder.none,
+        enabledBorder: InputBorder.none,
+        focusedBorder: InputBorder.none,
+        errorBorder: InputBorder.none,
+        focusedErrorBorder: InputBorder.none,
+        disabledBorder: InputBorder.none,
+        isDense: true,
+        contentPadding: EdgeInsets.zero,
+      ),
       onTap: () {
         // Используем микротаск для обработки нажатия
         Future.microtask(() {
@@ -430,7 +450,9 @@ class _TextEditorState extends State<TextEditor> {
       onChanged: (value) {
         // Обработка изменений текста происходит через listener контроллера
         // Но здесь можно выполнить дополнительную логику сохранения форматирования
-        print('onChanged вызван с текстом: $value');
+        if (widget.enableLogging) {
+          _log('onChanged вызван с текстом: $value');
+        }
 
         // Отложенное обновление стилей
         if (widget.onSpansChanged != null) {
@@ -504,7 +526,7 @@ class _TextEditorState extends State<TextEditor> {
 
   // Открывает ссылку в браузере
   void _openLink(String url) {
-    print('Открытие ссылки из текстового редактора: $url');
+    _log('Открытие ссылки из текстового редактора: $url');
 
     // Преобразуем строку в Uri
     final Uri uri = Uri.parse(url);
@@ -515,11 +537,11 @@ class _TextEditorState extends State<TextEditor> {
       launchUrl(uri, mode: LaunchMode.externalApplication)
           .then((success) {
             if (!success) {
-              print('Не удалось открыть ссылку: $url');
+              _log('Не удалось открыть ссылку: $url');
             }
           })
           .catchError((error) {
-            print('Ошибка при открытии ссылки: $error');
+            _log('Ошибка при открытии ссылки: $error');
           });
     });
   }
@@ -885,12 +907,12 @@ class _TextEditorState extends State<TextEditor> {
     // Используем микротаск для предотвращения вызова setState во время построения
     Future.microtask(() {
       if (mounted) {
-        print('════════════════════════════════════════════');
-        print('🔠 ПРИМЕНЕНИЕ ВЫРАВНИВАНИЯ:');
-        print('Новое выравнивание: $alignment');
+        _log('════════════════════════════════════════════');
+        _log('🔠 ПРИМЕНЕНИЕ ВЫРАВНИВАНИЯ:');
+        _log('Новое выравнивание: $alignment');
 
         // Выводим текущую структуру спанов
-        print('СТРУКТУРА СПАНОВ ДО ИЗМЕНЕНИЯ ВЫРАВНИВАНИЯ:');
+        _log('СТРУКТУРА СПАНОВ ДО ИЗМЕНЕНИЯ ВЫРАВНИВАНИЯ:');
         _controller.logSpansStructure();
 
         // Применяем выравнивание ко всем спанам в параграфе
@@ -902,23 +924,23 @@ class _TextEditorState extends State<TextEditor> {
           }
 
           _controller.updateSpans(newSpans);
-          print('Выравнивание применено ко всем спанам');
+          _log('Выравнивание применено ко всем спанам');
 
           // Уведомляем родительский виджет об изменениях
           widget.onTextChanged(_controller.text);
-          print('Уведомлен родительский виджет об изменении текста.');
+          _log('Уведомлен родительский виджет об изменении текста.');
 
           // Также уведомляем родительский виджет об изменениях в spans
           if (widget.onSpansChanged != null) {
             widget.onSpansChanged!(newSpans);
-            print('Уведомлен родительский виджет об изменении spans.');
+            _log('Уведомлен родительский виджет об изменении spans.');
           }
 
           // Обновляем UI
           setState(() {});
         }
 
-        print('════════════════════════════════════════════');
+        _log('════════════════════════════════════════════');
       }
     });
   }
@@ -929,35 +951,35 @@ class _TextEditorState extends State<TextEditor> {
       // Ничего не делаем, если нет выделения, кроме случая с ссылками
       // Для ссылок уже есть отдельная логика в _showLinkDialog,
       // которая временно создает выделение на весь спан ссылки
-      print('Попытка применить стиль без выделения - пропускаем');
+      _log('Попытка применить стиль без выделения - пропускаем');
       return;
     }
 
-    print('════════════════════════════════════════════');
-    print('🔍 ПРИМЕНЕНИЕ СТИЛЯ К ВЫДЕЛЕНИЮ:');
+    _log('════════════════════════════════════════════');
+    _log('🔍 ПРИМЕНЕНИЕ СТИЛЯ К ВЫДЕЛЕНИЮ:');
 
     final start = _controller.selection.start;
     final end = _controller.selection.end;
-    print('Выделение: [$start-$end]');
+    _log('Выделение: [$start-$end]');
 
     final currentStyle = _controller.getStyleAt(start) ?? widget.style;
-    print(
+    _log(
       'Текущий стиль: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}, link=${currentStyle.link}',
     );
 
     final newStyle = styleUpdater(currentStyle);
-    print(
+    _log(
       'Новый стиль: bold=${newStyle.bold}, italic=${newStyle.italic}, underline=${newStyle.underline}, fontSize=${newStyle.fontSize}, link=${newStyle.link}',
     );
 
     // Проверяем, имеем ли дело с операцией над ссылкой
     final bool isLinkOperation = newStyle.link != currentStyle.link;
     if (isLinkOperation) {
-      print('Обнаружена операция с ссылкой: ${newStyle.link ?? "удаление ссылки"}');
+      _log('Обнаружена операция с ссылкой: ${newStyle.link ?? "удаление ссылки"}');
     }
 
     // Выводим текущую структуру спанов перед применением стиля
-    print('СТРУКТУРА СПАНОВ ДО ПРИМЕНЕНИЯ СТИЛЯ:');
+    _log('СТРУКТУРА СПАНОВ ДО ПРИМЕНЕНИЯ СТИЛЯ:');
     _controller.logSpansStructure();
 
     // Сохраняем текущее выделение
@@ -965,11 +987,11 @@ class _TextEditorState extends State<TextEditor> {
 
     // Применяем стиль к спанам контроллера
     _controller.applyStyle(newStyle, start, end);
-    print('Стиль применен к тексту.');
+    _log('Стиль применен к тексту.');
 
     // После применения стиля объединяем смежные спаны с одинаковыми ссылками
     if (isLinkOperation) {
-      print('Объединение смежных спанов с одинаковыми ссылками...');
+      _log('Объединение смежных спанов с одинаковыми ссылками...');
       _controller.mergeAdjacentLinksWithSameUrl();
     }
 
@@ -980,17 +1002,17 @@ class _TextEditorState extends State<TextEditor> {
     final spans = _controller.getSpans();
 
     // Выводим обновленную структуру спанов
-    print('СТРУКТУРА СПАНОВ ПОСЛЕ ПРИМЕНЕНИЯ СТИЛЯ:');
+    _log('СТРУКТУРА СПАНОВ ПОСЛЕ ПРИМЕНЕНИЯ СТИЛЯ:');
     _controller.logSpansStructure();
 
     // Принудительно уведомляем родительский виджет об изменениях
     widget.onTextChanged(newText);
-    print('Уведомлен родительский виджет об изменении текста.');
+    _log('Уведомлен родительский виджет об изменении текста.');
 
     // Также уведомляем родительский виджет об изменениях в spans, если есть callback
     if (widget.onSpansChanged != null) {
       widget.onSpansChanged!(spans);
-      print('Уведомлен родительский виджет об изменении spans.');
+      _log('Уведомлен родительский виджет об изменении spans.');
     }
 
     // Обновляем UI и восстанавливаем выделение
@@ -1000,29 +1022,29 @@ class _TextEditorState extends State<TextEditor> {
 
       Future.microtask(() {
         if (mounted && _focusNode.hasFocus) {
-          print('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
+          _log('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
           _controller.selection = currentSelection;
           widget.onSelectionChanged(_controller.selection);
         }
       });
     });
 
-    print('════════════════════════════════════════════');
+    _log('════════════════════════════════════════════');
   }
 
   // Сбрасывает все форматирование для выделенного текста
   void _clearFormatting() {
     if (_controller.selection.start == _controller.selection.end) {
-      print('Попытка сбросить форматирование без выделения - пропускаем');
+      _log('Попытка сбросить форматирование без выделения - пропускаем');
       return;
     }
 
-    print('════════════════════════════════════════════');
-    print('🧹 СБРОС ФОРМАТИРОВАНИЯ:');
+    _log('════════════════════════════════════════════');
+    _log('🧹 СБРОС ФОРМАТИРОВАНИЯ:');
 
     final start = _controller.selection.start;
     final end = _controller.selection.end;
-    print('Выделение: [$start-$end]');
+    _log('Выделение: [$start-$end]');
 
     // Получаем текущее выравнивание из первого спана (сохраняем его)
     final currentAlignment =
@@ -1032,7 +1054,7 @@ class _TextEditorState extends State<TextEditor> {
 
     // Получаем текущий размер шрифта (сохраняем его)
     final currentFontSize = _controller.getStyleAt(start)?.fontSize ?? widget.style.fontSize;
-    print('Сохраняем размер шрифта: $currentFontSize');
+    _log('Сохраняем размер шрифта: $currentFontSize');
 
     // Создаем обычный стиль без форматирования, но с сохранением выравнивания и размера шрифта
     final plainStyle = doc.TextStyleAttributes(
@@ -1044,12 +1066,12 @@ class _TextEditorState extends State<TextEditor> {
       alignment: currentAlignment, // Сохраняем текущее выравнивание
     );
 
-    print(
+    _log(
       'Применяем стиль без форматирования: bold=false, italic=false, underline=false, fontSize=$currentFontSize, link=null, alignment=$currentAlignment',
     );
 
     // Выводим текущую структуру спанов перед сбросом форматирования
-    print('СТРУКТУРА СПАНОВ ДО СБРОСА ФОРМАТИРОВАНИЯ:');
+    _log('СТРУКТУРА СПАНОВ ДО СБРОСА ФОРМАТИРОВАНИЯ:');
     _controller.logSpansStructure();
 
     // Сохраняем текущее выделение
@@ -1057,7 +1079,7 @@ class _TextEditorState extends State<TextEditor> {
 
     // Применяем обычный стиль к выделенному тексту
     _controller.applyStyle(plainStyle, start, end);
-    print('Форматирование сброшено.');
+    _log('Форматирование сброшено.');
 
     // Создаем новый текстовый элемент с обновленными спанами
     final newText = _controller.text;
@@ -1066,17 +1088,17 @@ class _TextEditorState extends State<TextEditor> {
     final spans = _controller.getSpans();
 
     // Выводим обновленную структуру спанов
-    print('СТРУКТУРА СПАНОВ ПОСЛЕ СБРОСА ФОРМАТИРОВАНИЯ:');
+    _log('СТРУКТУРА СПАНОВ ПОСЛЕ СБРОСА ФОРМАТИРОВАНИЯ:');
     _controller.logSpansStructure();
 
     // Уведомляем родительский виджет об изменениях
     widget.onTextChanged(newText);
-    print('Уведомлен родительский виджет об изменении текста.');
+    _log('Уведомлен родительский виджет об изменении текста.');
 
     // Также уведомляем родительский виджет об изменениях в spans, если есть callback
     if (widget.onSpansChanged != null) {
       widget.onSpansChanged!(spans);
-      print('Уведомлен родительский виджет об изменении spans.');
+      _log('Уведомлен родительский виджет об изменении spans.');
     }
 
     // Обновляем UI и восстанавливаем выделение
@@ -1086,33 +1108,33 @@ class _TextEditorState extends State<TextEditor> {
 
       Future.microtask(() {
         if (mounted && _focusNode.hasFocus) {
-          print('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
+          _log('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
           _controller.selection = currentSelection;
           widget.onSelectionChanged(_controller.selection);
         }
       });
     });
 
-    print('════════════════════════════════════════════');
+    _log('════════════════════════════════════════════');
   }
 
   // Устанавливает точный размер шрифта для выделенного текста
   void _setFontSize(double newFontSize) {
     if (_controller.selection.start == _controller.selection.end) {
-      print('Попытка изменить размер текста без выделения - пропускаем');
+      _log('Попытка изменить размер текста без выделения - пропускаем');
       return;
     }
 
-    print('════════════════════════════════════════════');
-    print('🔍 УСТАНОВКА РАЗМЕРА ТЕКСТА:');
+    _log('════════════════════════════════════════════');
+    _log('🔍 УСТАНОВКА РАЗМЕРА ТЕКСТА:');
 
     final start = _controller.selection.start;
     final end = _controller.selection.end;
-    print('Выделение: [$start-$end]');
+    _log('Выделение: [$start-$end]');
 
     final currentStyle = _controller.getStyleAt(start) ?? widget.style;
-    print('Текущий размер шрифта: ${currentStyle.fontSize}');
-    print('Новый размер шрифта: $newFontSize');
+    _log('Текущий размер шрифта: ${currentStyle.fontSize}');
+    _log('Новый размер шрифта: $newFontSize');
 
     // Создаем новый стиль с заданным размером шрифта
     final newStyle = currentStyle.copyWith(fontSize: newFontSize);
@@ -1122,19 +1144,19 @@ class _TextEditorState extends State<TextEditor> {
 
     // Применяем стиль к спанам контроллера
     _controller.applyStyle(newStyle, start, end);
-    print('Размер шрифта изменен.');
+    _log('Размер шрифта изменен.');
 
     // Получаем обновленные spans
     final spans = _controller.getSpans();
 
     // Уведомляем родительский виджет об изменениях
     widget.onTextChanged(_controller.text);
-    print('Уведомлен родительский виджет об изменении текста.');
+    _log('Уведомлен родительский виджет об изменении текста.');
 
     // Также уведомляем родительский виджет об изменениях в spans, если есть callback
     if (widget.onSpansChanged != null) {
       widget.onSpansChanged!(spans);
-      print('Уведомлен родительский виджет об изменении spans.');
+      _log('Уведомлен родительский виджет об изменении spans.');
     }
 
     // Обновляем UI и восстанавливаем выделение
@@ -1146,29 +1168,29 @@ class _TextEditorState extends State<TextEditor> {
 
       Future.microtask(() {
         if (mounted && _focusNode.hasFocus) {
-          print('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
+          _log('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
           _controller.selection = currentSelection;
           widget.onSelectionChanged(_controller.selection);
         }
       });
     }
 
-    print('════════════════════════════════════════════');
+    _log('════════════════════════════════════════════');
   }
 
   // Применяет предустановленный стиль к выделенному тексту
   void _applyPresetStyle(String styleType) {
     if (_controller.selection.start == _controller.selection.end) {
-      print('Попытка применить стиль без выделения - пропускаем');
+      _log('Попытка применить стиль без выделения - пропускаем');
       return;
     }
 
-    print('════════════════════════════════════════════');
-    print('🔍 ПРИМЕНЕНИЕ ПРЕДУСТАНОВЛЕННОГО СТИЛЯ:');
+    _log('════════════════════════════════════════════');
+    _log('🔍 ПРИМЕНЕНИЕ ПРЕДУСТАНОВЛЕННОГО СТИЛЯ:');
 
     final start = _controller.selection.start;
     final end = _controller.selection.end;
-    print('Выделение: [$start-$end]');
+    _log('Выделение: [$start-$end]');
 
     // Получаем текущую тему редактора
     final editorTheme = EditorThemeExtension.of(context);
@@ -1185,7 +1207,7 @@ class _TextEditorState extends State<TextEditor> {
           fontSize: editorTheme.titleTextStyle.fontSize ?? 24.0,
           color: editorTheme.titleTextStyle.color,
         );
-        print('Применяем стиль заголовка из темы: fontSize=${newStyle.fontSize}, bold=${newStyle.bold}');
+        _log('Применяем стиль заголовка из темы: fontSize=${newStyle.fontSize}, bold=${newStyle.bold}');
         break;
       case 'subheading':
         // Используем стиль подзаголовка из темы
@@ -1194,7 +1216,7 @@ class _TextEditorState extends State<TextEditor> {
           fontSize: editorTheme.subtitleTextStyle.fontSize ?? 18.0,
           color: editorTheme.subtitleTextStyle.color,
         );
-        print('Применяем стиль подзаголовка из темы: fontSize=${newStyle.fontSize}, bold=${newStyle.bold}');
+        _log('Применяем стиль подзаголовка из темы: fontSize=${newStyle.fontSize}, bold=${newStyle.bold}');
         break;
       case 'normal':
         // Используем стиль обычного текста из темы
@@ -1203,10 +1225,10 @@ class _TextEditorState extends State<TextEditor> {
           fontSize: editorTheme.defaultTextStyle.fontSize ?? 14.0,
           color: editorTheme.defaultTextStyle.color,
         );
-        print('Применяем обычный стиль из темы: fontSize=${newStyle.fontSize}, bold=${newStyle.bold}');
+        _log('Применяем обычный стиль из темы: fontSize=${newStyle.fontSize}, bold=${newStyle.bold}');
         break;
       default:
-        print('Неизвестный тип стиля: $styleType');
+        _log('Неизвестный тип стиля: $styleType');
         return;
     }
 
@@ -1215,19 +1237,19 @@ class _TextEditorState extends State<TextEditor> {
 
     // Применяем стиль к спанам контроллера
     _controller.applyStyle(newStyle, start, end);
-    print('Предустановленный стиль применен.');
+    _log('Предустановленный стиль применен.');
 
     // Получаем обновленные spans
     final spans = _controller.getSpans();
 
     // Уведомляем родительский виджет об изменениях
     widget.onTextChanged(_controller.text);
-    print('Уведомлен родительский виджет об изменении текста.');
+    _log('Уведомлен родительский виджет об изменении текста.');
 
     // Также уведомляем родительский виджет об изменениях в spans, если есть callback
     if (widget.onSpansChanged != null) {
       widget.onSpansChanged!(spans);
-      print('Уведомлен родительский виджет об изменении spans.');
+      _log('Уведомлен родительский виджет об изменении spans.');
     }
 
     // Обновляем UI и восстанавливаем выделение
@@ -1239,14 +1261,14 @@ class _TextEditorState extends State<TextEditor> {
 
       Future.microtask(() {
         if (mounted && _focusNode.hasFocus) {
-          print('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
+          _log('Восстанавливаем выделение: ${currentSelection.start}-${currentSelection.end}');
           _controller.selection = currentSelection;
           widget.onSelectionChanged(_controller.selection);
         }
       });
     }
 
-    print('════════════════════════════════════════════');
+    _log('════════════════════════════════════════════');
   }
 
   // Определяет текущий тип стиля текста на основе его свойств
@@ -1326,20 +1348,31 @@ class StyledTextEditingController extends TextEditingController {
   List<doc.TextSpanDocument>? spans; // Делаем публичным для доступа из TextEditor
   final TextStyle Function(doc.TextStyleAttributes) _styleAttributesToTextStyle;
   String _lastText = ''; // Для отслеживания изменений
+  final bool enableLogging;
 
   StyledTextEditingController({
     String? text,
     List<doc.TextSpanDocument>? spans,
     required TextStyle Function(doc.TextStyleAttributes) styleAttributesToTextStyle,
+    this.enableLogging = false,
   }) : spans = spans,
        _styleAttributesToTextStyle = styleAttributesToTextStyle,
        _lastText = text ?? '',
        super(text: text);
 
+  // Вспомогательный метод для логирования
+  void _log(String message) {
+    if (enableLogging) {
+      print(message);
+    }
+  }
+
   void updateSpans(List<doc.TextSpanDocument>? newSpans) {
     spans = newSpans;
     // Логируем структуру спанов после каждого обновления
-    logSpansStructure();
+    if (enableLogging) {
+      logSpansStructure();
+    }
     notifyListeners();
   }
 
@@ -1354,15 +1387,15 @@ class StyledTextEditingController extends TextEditingController {
 
     // Обновляем _lastText с проверкой на изменения
     if (oldText != text && oldSpans != null && oldSpans.isNotEmpty) {
-      print('════════════════════════════════════════════');
-      print('📝 ОБНОВЛЕНИЕ ТЕКСТА С СОХРАНЕНИЕМ СТИЛЕЙ:');
-      print('Старый текст: "$oldText"');
-      print('Новый текст: "$text"');
+      _log('════════════════════════════════════════════');
+      _log('📝 ОБНОВЛЕНИЕ ТЕКСТА С СОХРАНЕНИЕМ СТИЛЕЙ:');
+      _log('Старый текст: "$oldText"');
+      _log('Новый текст: "$text"');
 
       // Применяем сохранение форматирования
       spans = _preserveFormattingForNewText(oldText, text, oldSpans, selection);
 
-      print('Обновление текста с сохранением структуры спанов...');
+      _log('Обновление текста с сохранением структуры спанов...');
       logSpansStructure();
       _lastText = text;
     }
@@ -1377,15 +1410,15 @@ class StyledTextEditingController extends TextEditingController {
   ) {
     // Если нет изменений или нет spans, возвращаем исходные spans
     if (oldText == newText || oldSpans.isEmpty) {
-      print('Текст не изменился или нет spans, возвращаем исходные spans.');
+      _log('Текст не изменился или нет spans, возвращаем исходные spans.');
       return oldSpans;
     }
 
-    print('════════════════════════════════════════════');
-    print('🔄 ОБРАБОТКА ИЗМЕНЕНИЯ ТЕКСТА:');
-    print('Старый текст: "$oldText"');
-    print('Новый текст: "$newText"');
-    print('Позиция курсора: ${currentSelection.baseOffset}');
+    _log('════════════════════════════════════════════');
+    _log('🔄 ОБРАБОТКА ИЗМЕНЕНИЯ ТЕКСТА:');
+    _log('Старый текст: "$oldText"');
+    _log('Новый текст: "$newText"');
+    _log('Позиция курсора: ${currentSelection.baseOffset}');
 
     // Определяем тип изменения и позицию курсора
     final cursorPosition = currentSelection.baseOffset;
@@ -1393,13 +1426,13 @@ class StyledTextEditingController extends TextEditingController {
     final isDeletion = newText.length < oldText.length;
 
     if (isAddition) {
-      print('➕ Обнаружено добавление текста.');
+      _log('➕ Обнаружено добавление текста.');
       // Найдем точку вставки
       int insertPos = cursorPosition - (newText.length - oldText.length);
       if (insertPos < 0) insertPos = 0;
 
-      print('Позиция вставки: $insertPos');
-      print('Добавлено символов: ${newText.length - oldText.length}');
+      _log('Позиция вставки: $insertPos');
+      _log('Добавлено символов: ${newText.length - oldText.length}');
 
       // Получим стиль в позиции вставки
       doc.TextStyleAttributes? styleAtInsert;
@@ -1415,21 +1448,21 @@ class StyledTextEditingController extends TextEditingController {
         final spanStart = spanStartPos;
         final spanEnd = spanStart + span.text.length;
 
-        print('Обработка спана #$i: "$span.text" позиция [$spanStart-$spanEnd]');
+        _log('Обработка спана #$i: "$span.text" позиция [$spanStart-$spanEnd]');
 
         // Если вставка произошла в этом спане
         if (insertPos >= spanStart && insertPos <= spanEnd) {
-          print('Вставка произошла в этом спане.');
+          _log('Вставка произошла в этом спане.');
           // Запоминаем стиль для новых символов
           styleAtInsert = span.style;
-          print(
+          _log(
             'Стиль для новых символов: bold=${styleAtInsert.bold}, italic=${styleAtInsert.italic}, fontSize=${styleAtInsert.fontSize}',
           );
 
           // Вычисляем добавленный текст
           final addedLength = newText.length - oldText.length;
           final addedText = newText.substring(insertPos, insertPos + addedLength);
-          print('Добавленный текст: "$addedText"');
+          _log('Добавленный текст: "$addedText"');
 
           // Разделяем спан на части
           final beforeInsert = span.text.substring(0, insertPos - spanStart);
@@ -1438,27 +1471,27 @@ class StyledTextEditingController extends TextEditingController {
           // Добавляем части с соответствующим стилем
           if (beforeInsert.isNotEmpty) {
             newSpans.add(doc.TextSpanDocument(text: beforeInsert, style: span.style));
-            print('Создан спан ДО вставки: "$beforeInsert"');
+            _log('Создан спан ДО вставки: "$beforeInsert"');
           }
 
           // Добавляем новый текст с тем же стилем
           newSpans.add(doc.TextSpanDocument(text: addedText, style: span.style));
-          print(
+          _log(
             'Создан спан с НОВЫМ текстом: "$addedText" с стилем: bold=${span.style.bold}, italic=${span.style.italic}, fontSize=${span.style.fontSize}',
           );
 
           if (afterInsert.isNotEmpty) {
             newSpans.add(doc.TextSpanDocument(text: afterInsert, style: span.style));
-            print('Создан спан ПОСЛЕ вставки: "$afterInsert"');
+            _log('Создан спан ПОСЛЕ вставки: "$afterInsert"');
           }
         } else if (spanStart >= insertPos) {
           // Спан после места вставки
           newSpans.add(span);
-          print('Спан после места вставки, добавляем без изменений');
+          _log('Спан после места вставки, добавляем без изменений');
         } else {
           // Спан до места вставки
           newSpans.add(span);
-          print('Спан до места вставки, добавляем без изменений');
+          _log('Спан до места вставки, добавляем без изменений');
         }
 
         spanStartPos = spanEnd;
@@ -1466,22 +1499,22 @@ class StyledTextEditingController extends TextEditingController {
 
       // Если newSpans пусто, значит что-то пошло не так - используем fallback
       if (newSpans.isEmpty) {
-        print('⚠️ Не удалось создать новые spans. Используем fallback с одним спаном.');
+        _log('⚠️ Не удалось создать новые spans. Используем fallback с одним спаном.');
         // Используем стиль первого спана
         final style = oldSpans[0].style;
         return [doc.TextSpanDocument(text: newText, style: style)];
       }
 
-      print('Созданы новые spans (${newSpans.length}) после добавления текста.');
+      _log('Созданы новые spans (${newSpans.length}) после добавления текста.');
 
       // Объединяем соседние спаны с одинаковым стилем
       final result = _mergeAdjacentSpans(newSpans);
-      print('Объединены смежные спаны с одинаковым стилем. Финальное количество: ${result.length}');
-      print('════════════════════════════════════════════');
+      _log('Объединены смежные спаны с одинаковым стилем. Финальное количество: ${result.length}');
+      _log('════════════════════════════════════════════');
       return result;
     } else if (isDeletion) {
-      print('➖ Обнаружено удаление текста.');
-      print('Удалено символов: ${oldText.length - newText.length}');
+      _log('➖ Обнаружено удаление текста.');
+      _log('Удалено символов: ${oldText.length - newText.length}');
 
       // Для удаления просто перестраиваем spans на основе нового текста
       // Попытка сохранить максимум форматирования
@@ -1498,7 +1531,7 @@ class StyledTextEditingController extends TextEditingController {
         final oldSpanLength = span.text.length;
         final oldSpanEnd = oldPos + oldSpanLength;
 
-        print('Обработка спана: "${span.text}" позиция [$oldPos-$oldSpanEnd]');
+        _log('Обработка спана: "${span.text}" позиция [$oldPos-$oldSpanEnd]');
 
         // Определяем, сколько текста из этого спана остается в новом тексте
         int charsLeft = 0;
@@ -1519,13 +1552,13 @@ class StyledTextEditingController extends TextEditingController {
           if (!found) break;
         }
 
-        print('Символов осталось от этого спана: $charsLeft');
+        _log('Символов осталось от этого спана: $charsLeft');
 
         // Если от спана что-то осталось, добавляем его
         if (charsLeft > 0) {
           final remainingText = newText.substring(newPos - charsLeft, newPos);
           newSpans.add(doc.TextSpanDocument(text: remainingText, style: span.style));
-          print('Добавлен спан с оставшимся текстом: "$remainingText"');
+          _log('Добавлен спан с оставшимся текстом: "$remainingText"');
         }
 
         oldPos = oldSpanEnd;
@@ -1533,7 +1566,7 @@ class StyledTextEditingController extends TextEditingController {
 
       // Если newSpans пусто, значит все было удалено или текст полностью изменен
       if (newSpans.isEmpty) {
-        print('⚠️ Все спаны были удалены. Создаем один спан с оставшимся текстом.');
+        _log('⚠️ Все спаны были удалены. Создаем один спан с оставшимся текстом.');
         // Используем стиль первого спана
         final style = oldSpans[0].style;
         return [doc.TextSpanDocument(text: newText, style: style)];
@@ -1548,21 +1581,21 @@ class StyledTextEditingController extends TextEditingController {
       // Если есть непокрытые части, добавляем их
       if (coveredLength < newText.length) {
         final remainingText = newText.substring(coveredLength);
-        print('Остался непокрытый текст: "$remainingText". Добавляем его со стилем последнего спана.');
+        _log('Остался непокрытый текст: "$remainingText". Добавляем его со стилем последнего спана.');
         // Используем стиль последнего спана
         newSpans.add(doc.TextSpanDocument(text: remainingText, style: oldSpans.last.style));
       }
 
-      print('Созданы новые spans (${newSpans.length}) после удаления текста.');
+      _log('Созданы новые spans (${newSpans.length}) после удаления текста.');
 
       // Объединяем соседние спаны с одинаковым стилем
       final result = _mergeAdjacentSpans(newSpans);
-      print('Объединены смежные спаны с одинаковым стилем. Финальное количество: ${result.length}');
-      print('════════════════════════════════════════════');
+      _log('Объединены смежные спаны с одинаковым стилем. Финальное количество: ${result.length}');
+      _log('════════════════════════════════════════════');
       return result;
     }
 
-    print('⚠️ Не удалось определить тип изменения текста. Создаем один спан.');
+    _log('⚠️ Не удалось определить тип изменения текста. Создаем один спан.');
     // Если не удалось определить тип изменения, сохраняем хотя бы стиль
     final style = oldSpans[0].style;
     return [doc.TextSpanDocument(text: newText, style: style)];
@@ -1570,49 +1603,31 @@ class StyledTextEditingController extends TextEditingController {
 
   // Метод для отладочного вывода текущей структуры спанов
   void logSpansStructure() {
+    if (!enableLogging) return;
+
+    _log('════════════════════════════════════════════');
+    _log('📋 СТРУКТУРА СПАНОВ:');
     if (spans == null || spans!.isEmpty) {
-      print('════════════════════════════════════════════');
-      print('📝 ТЕКСТОВАЯ СТРУКТУРА: [Пусто]');
-      print('════════════════════════════════════════════');
+      _log('Спаны отсутствуют');
+      _log('════════════════════════════════════════════');
       return;
     }
-
-    print('════════════════════════════════════════════');
-    print('📝 ТЕКСТОВАЯ СТРУКТУРА:');
-    print('Текст: "$text"');
-    print('Количество спанов: ${spans!.length}');
 
     int currentPos = 0;
     for (int i = 0; i < spans!.length; i++) {
       final span = spans![i];
-      final spanStartPos = currentPos;
-      final spanEndPos = spanStartPos + span.text.length;
+      final spanStart = currentPos;
+      final spanEnd = currentPos + span.text.length;
 
       final bool isBold = span.style.bold;
       final bool isItalic = span.style.italic;
       final bool isUnderline = span.style.underline;
-      final String? link = span.style.link;
-      final double fontSize = span.style.fontSize;
+      final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
-      final String styleMarkers = [
-        if (isBold) 'Ж',
-        if (isItalic) 'К',
-        if (isUnderline) 'П',
-        if (link != null) 'С',
-      ].join('');
-
-      final String styleDesc =
-          'bold=$isBold, italic=$isItalic, underline=$isUnderline, fontSize=$fontSize${link != null ? ', link=$link' : ''}';
-      final String spanText = span.text.length > 30 ? '${span.text.substring(0, 27)}...' : span.text;
-      final String escapedText = spanText.replaceAll('\n', '\\n');
-
-      print(
-        'Спан #$i [$spanStartPos-$spanEndPos]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"$escapedText" ($styleDesc)',
-      );
-
-      currentPos = spanEndPos;
+      _log('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
+      currentPos = spanEnd;
     }
-    print('════════════════════════════════════════════');
+    _log('════════════════════════════════════════════');
   }
 
   // Объединяет соседние спаны с одинаковым стилем
@@ -1629,11 +1644,11 @@ class StyledTextEditingController extends TextEditingController {
       if (_areStylesEqual(previousSpan.style, currentSpan.style)) {
         // Объединяем спаны
         result.last = doc.TextSpanDocument(text: previousSpan.text + currentSpan.text, style: previousSpan.style);
-        print(
+        _log(
           'Объединены спаны с одинаковыми стилями: "${previousSpan.text}" + "${currentSpan.text}" (fontSize=${previousSpan.style.fontSize})',
         );
       } else {
-        print(
+        _log(
           'Спаны не объединены из-за разных стилей: fontSize1=${previousSpan.style.fontSize}, fontSize2=${currentSpan.style.fontSize}',
         );
         result.add(currentSpan);
@@ -1698,19 +1713,19 @@ class StyledTextEditingController extends TextEditingController {
   void applyStyle(doc.TextStyleAttributes style, int start, int end) {
     if (spans == null || spans!.isEmpty) {
       spans = [doc.TextSpanDocument(text: text, style: style)];
-      print('Применение стиля к новому тексту. Создан первый спан.');
+      _log('Применение стиля к новому тексту. Создан первый спан.');
       logSpansStructure();
       notifyListeners();
       return;
     }
 
     if (start >= end || start < 0 || end > text.length) {
-      print('⚠️ Неверный диапазон для применения стиля: start=$start, end=$end, textLength=${text.length}');
+      _log('⚠️ Неверный диапазон для применения стиля: start=$start, end=$end, textLength=${text.length}');
       return;
     }
 
-    print('Применение стиля к диапазону: start=$start, end=$end');
-    print('Новый стиль: bold=${style.bold}, italic=${style.italic}, underline=${style.underline}, link=${style.link}');
+    _log('Применение стиля к диапазону: start=$start, end=$end');
+    _log('Новый стиль: bold=${style.bold}, italic=${style.italic}, underline=${style.underline}, link=${style.link}');
 
     final List<doc.TextSpanDocument> newSpans = [];
     int currentPos = 0;
@@ -1723,12 +1738,12 @@ class StyledTextEditingController extends TextEditingController {
       // Если span полностью до диапазона, добавляем его
       if (spanEnd <= start) {
         newSpans.add(span);
-        print('Спан до диапазона: "${span.text}" позиция [$spanStart-$spanEnd]');
+        _log('Спан до диапазона: "${span.text}" позиция [$spanStart-$spanEnd]');
       }
       // Если span полностью после диапазона, добавляем его
       else if (spanStart >= end) {
         newSpans.add(span);
-        print('Спан после диапазона: "${span.text}" позиция [$spanStart-$spanEnd]');
+        _log('Спан после диапазона: "${span.text}" позиция [$spanStart-$spanEnd]');
       }
       // Если span пересекает диапазон
       else {
@@ -1736,7 +1751,7 @@ class StyledTextEditingController extends TextEditingController {
         if (spanStart < start) {
           final beforeText = span.text.substring(0, start - spanStart);
           newSpans.add(doc.TextSpanDocument(text: beforeText, style: span.style));
-          print('Создан спан ДО выделения: "$beforeText" с тем же стилем');
+          _log('Создан спан ДО выделения: "$beforeText" с тем же стилем');
         }
 
         // Часть внутри диапазона
@@ -1746,13 +1761,13 @@ class StyledTextEditingController extends TextEditingController {
         );
 
         newSpans.add(doc.TextSpanDocument(text: insideText, style: style));
-        print('Создан спан ВНУТРИ выделения: "$insideText" с новым стилем: bold=${style.bold}, italic=${style.italic}');
+        _log('Создан спан ВНУТРИ выделения: "$insideText" с новым стилем: bold=${style.bold}, italic=${style.italic}');
 
         // Часть после диапазона
         if (spanEnd > end) {
           final afterText = span.text.substring(end - spanStart);
           newSpans.add(doc.TextSpanDocument(text: afterText, style: span.style));
-          print('Создан спан ПОСЛЕ выделения: "$afterText" с тем же стилем');
+          _log('Создан спан ПОСЛЕ выделения: "$afterText" с тем же стилем');
         }
       }
 
@@ -1760,7 +1775,7 @@ class StyledTextEditingController extends TextEditingController {
     }
 
     spans = newSpans;
-    print('Применение стиля завершено. Новое количество спанов: ${spans!.length}');
+    _log('Применение стиля завершено. Новое количество спанов: ${spans!.length}');
     logSpansStructure();
     notifyListeners();
   }
@@ -1775,7 +1790,7 @@ class StyledTextEditingController extends TextEditingController {
   void mergeAdjacentLinksWithSameUrl() {
     if (spans == null || spans!.length <= 1) return;
 
-    print('Начинаем объединение смежных спанов с одинаковыми ссылками...');
+    _log('Начинаем объединение смежных спанов с одинаковыми ссылками...');
     logSpansStructure();
 
     final List<doc.TextSpanDocument> newSpans = [];
@@ -1792,7 +1807,7 @@ class StyledTextEditingController extends TextEditingController {
           currentSpan.style.fontSize == span.style.fontSize) {
         // Проверяем одинаковый размер шрифта
         // Если текущий спан имеет ту же ссылку и стили, объединяем его с предыдущим
-        print('Объединяем спаны с одинаковыми ссылками: "${currentSpan.text}" + "${span.text}"');
+        _log('Объединяем спаны с одинаковыми ссылками: "${currentSpan.text}" + "${span.text}"');
         currentSpan = doc.TextSpanDocument(text: currentSpan.text + span.text, style: currentSpan.style);
       } else {
         // Иначе добавляем текущий спан в результат и переходим к следующему
@@ -1807,7 +1822,7 @@ class StyledTextEditingController extends TextEditingController {
     }
 
     spans = newSpans;
-    print('Объединение смежных спанов завершено. Новое количество спанов: ${spans!.length}');
+    _log('Объединение смежных спанов завершено. Новое количество спанов: ${spans!.length}');
     logSpansStructure();
     notifyListeners();
   }

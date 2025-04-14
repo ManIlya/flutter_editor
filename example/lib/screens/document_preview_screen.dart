@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_editor/flutter_editor.dart';
 
-
 /// Экран предварительного просмотра документа
 class DocumentPreviewScreen extends StatelessWidget {
   final DocumentModel document;
   final VoidCallback? onEditPressed;
+  final bool enableLogging;
 
-  const DocumentPreviewScreen({super.key, required this.document, this.onEditPressed});
+  const DocumentPreviewScreen({super.key, required this.document, this.onEditPressed, this.enableLogging = false});
 
   @override
   Widget build(BuildContext context) {
@@ -20,7 +20,10 @@ class DocumentPreviewScreen extends StatelessWidget {
         ],
       ),
       body: SingleChildScrollView(
-        child: Padding(padding: const EdgeInsets.all(16.0), child: DocumentViewer(document: document)),
+        child: Padding(
+          padding: const EdgeInsets.all(16.0),
+          child: DocumentViewer(document: document, enableLogging: enableLogging),
+        ),
       ),
     );
   }

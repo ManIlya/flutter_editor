@@ -64,6 +64,29 @@ class ImageEditor extends StatelessWidget {
                     ),
                   ),
 
+                // Индикатор размера
+                if (isSelected)
+                  Container(
+                    width: imageElement.width,
+                    padding: const EdgeInsets.symmetric(vertical: 2.0, horizontal: 8.0),
+                    color: editorTheme.toolbarColor.withOpacity(0.8),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Icon(Icons.photo_size_select_large, size: 14, color: editorTheme.toolbarIconColor),
+                        const SizedBox(width: 4),
+                        Text(
+                          '${imageElement.sizePercent.toInt()}% от ширины экрана',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: editorTheme.toolbarIconColor,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+
                 // Изображение
                 CachedNetworkImage(
                   imageUrl: imageElement.imageUrl,
@@ -248,23 +271,14 @@ class ImageEditor extends StatelessWidget {
     double newWidth = imageElement.width;
     double newHeight = imageElement.height;
     double sizePercent = imageElement.sizePercent;
-    String sizeType = imageElement.sizeType;
-
-    // Если текущий тип размера не "screen" и не "original", используем "screen" по умолчанию
-    if (sizeType != 'screen' && sizeType != 'original') {
-      sizeType = 'screen';
-    }
-
-    // Всегда используем "screen" (процент от ширины экрана) по умолчанию
-    if (sizeType != 'original') {
-      sizeType = 'screen';
-    }
+    // Всегда используем "screen" (процент от ширины экрана)
+    String sizeType = 'screen';
 
     // Определяем размер экрана
     final screenWidth = MediaQuery.of(context).size.width;
 
     // Рассчитываем текущий процент от экрана, если он не задан
-    if (sizeType == 'screen' && (sizePercent < 10 || sizePercent > 100)) {
+    if (sizePercent < 10 || sizePercent > 100) {
       sizePercent = (newWidth / screenWidth * 100).clamp(10.0, 100.0);
     }
 
@@ -282,111 +296,44 @@ class ImageEditor extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Тип размера (радиокнопки)
+                      // Заголовок для настройки процента
                       Text(
-                        'Тип размера:',
+                        'Размер изображения:',
                         style: TextStyle(fontWeight: FontWeight.bold, color: editorTheme.defaultTextStyle.color),
-                      ),
-                      Row(
-                        children: [
-                          Radio(
-                            value: 'original',
-                            groupValue: sizeType,
-                            activeColor: editorTheme.toolbarSelectedIconColor,
-                            onChanged: (value) {
-                              setState(() {
-                                sizeType = value as String;
-                              });
-                            },
-                          ),
-                          Expanded(
-                            child: Text(
-                              'Оригинальный размер',
-                              style: TextStyle(fontSize: 14, color: editorTheme.defaultTextStyle.color),
-                            ),
-                          ),
-                        ],
-                      ),
-                      Row(
-                        children: [
-                          Radio(
-                            value: 'screen',
-                            groupValue: sizeType,
-                            activeColor: editorTheme.toolbarSelectedIconColor,
-                            onChanged: (value) {
-                              setState(() {
-                                sizeType = value as String;
-                              });
-                            },
-                          ),
-                          Expanded(
-                            child: Text(
-                              'Процент от ширины экрана',
-                              style: TextStyle(fontSize: 14, color: editorTheme.defaultTextStyle.color),
-                            ),
-                          ),
-                        ],
                       ),
 
                       const SizedBox(height: 16),
 
-                      // Для типа "screen" показываем слайдер процентов
-                      if (sizeType == 'screen')
-                        Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Ширина: ${sizePercent.toInt()}% от экрана',
-                              style: TextStyle(fontSize: 14, color: editorTheme.defaultTextStyle.color),
-                            ),
-                            Slider(
-                              value: sizePercent,
-                              min: 10,
-                              max: 100,
-                              divisions: 9,
-                              activeColor: editorTheme.toolbarSelectedIconColor,
-                              inactiveColor: editorTheme.borderColor,
-                              label: '${sizePercent.toInt()}%',
-                              onChanged: (value) {
-                                setState(() {
-                                  sizePercent = value;
-                                  // Пересчитываем ширину и высоту на основе процента
-                                  newWidth = screenWidth * sizePercent / 100;
-                                  if (imageElement.originalHeight != null && imageElement.originalWidth != null) {
-                                    final aspectRatio = imageElement.originalHeight! / imageElement.originalWidth!;
-                                    newHeight = newWidth * aspectRatio;
-                                  }
-                                });
-                              },
-                            ),
-                          ],
-                        ),
-
-                      // Для типа "original" показываем текущие размеры
-                      if (sizeType == 'original')
-                        Container(
-                          padding: const EdgeInsets.all(8),
-                          decoration: BoxDecoration(
-                            color: editorTheme.toolbarColor,
-                            borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2),
-                            border: Border.all(color: editorTheme.borderColor),
+                      // Показываем слайдер процентов
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Ширина: ${sizePercent.toInt()}% от экрана',
+                            style: TextStyle(fontSize: 14, color: editorTheme.defaultTextStyle.color),
                           ),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              if (imageElement.originalWidth != null)
-                                Text(
-                                  'Оригинальная ширина: ${imageElement.originalWidth!.toInt()} px',
-                                  style: TextStyle(fontSize: 14, color: editorTheme.defaultTextStyle.color),
-                                ),
-                              if (imageElement.originalHeight != null)
-                                Text(
-                                  'Оригинальная высота: ${imageElement.originalHeight!.toInt()} px',
-                                  style: TextStyle(fontSize: 14, color: editorTheme.defaultTextStyle.color),
-                                ),
-                            ],
+                          Slider(
+                            value: sizePercent,
+                            min: 10,
+                            max: 100,
+                            divisions: 9,
+                            activeColor: editorTheme.toolbarSelectedIconColor,
+                            inactiveColor: editorTheme.borderColor,
+                            label: '${sizePercent.toInt()}%',
+                            onChanged: (value) {
+                              setState(() {
+                                sizePercent = value;
+                                // Пересчитываем ширину и высоту на основе процента
+                                newWidth = screenWidth * sizePercent / 100;
+                                if (imageElement.originalHeight != null && imageElement.originalWidth != null) {
+                                  final aspectRatio = imageElement.originalHeight! / imageElement.originalWidth!;
+                                  newHeight = newWidth * aspectRatio;
+                                }
+                              });
+                            },
                           ),
-                        ),
+                        ],
+                      ),
                     ],
                   ),
                 ),

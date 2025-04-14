@@ -1,6 +1,9 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter_editor/flutter_editor.dart';
 import 'screens/document_preview_screen.dart';
+import 'examples/serialization_example.dart';
+import 'examples/format_conversion_example.dart';
 
 void main() {
   runApp(const MyApp());
@@ -193,6 +196,16 @@ class _EditorPageState extends State<EditorPage> {
     );
   }
 
+  // Переход на пример сериализации
+  void _showSerializationExample() {
+    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const SerializationExample()));
+  }
+
+  // Переход на пример форматирования
+  void _showFormatConversionExample() {
+    Navigator.of(context).push(MaterialPageRoute(builder: (context) => const FormatConversionExample()));
+  }
+
   // Создаем пользовательскую тему для демонстрации
   EditorThemeExtension _getCustomTheme(BuildContext context) {
     return EditorThemeExtension(
@@ -274,27 +287,18 @@ class _EditorPageState extends State<EditorPage> {
       data: theme,
       child: Scaffold(
         appBar: AppBar(
-          title: Text(_isEditMode ? 'Редактор текста с обтеканием' : 'Просмотр документа'),
-          backgroundColor: colorScheme.surfaceVariant,
-          foregroundColor: colorScheme.onSurfaceVariant,
+          title: Text('Редактор документов - ${_colorNames[_selectedColorSeed]}'),
           actions: [
-            // Кнопка изменения цвета colorScheme
             IconButton(
-              icon: Icon(Icons.color_lens),
-              onPressed: _changeSeedColor,
-              tooltip: 'Сменить цвет (${_colorNames[_selectedColorSeed]})',
+              icon: Icon(_isEditMode ? Icons.preview : Icons.edit),
+              onPressed: _toggleEditMode,
+              tooltip: _isEditMode ? 'Режим просмотра' : 'Режим редактирования',
             ),
-            // Кнопка переключения темы
+            IconButton(icon: const Icon(Icons.color_lens), onPressed: _changeSeedColor, tooltip: 'Изменить цвет темы'),
             IconButton(
-              icon: Icon(_useCustomTheme ? Icons.style : Icons.style_outlined),
+              icon: Icon(_useCustomTheme ? Icons.style : Icons.brightness_auto),
               onPressed: _toggleTheme,
               tooltip: _useCustomTheme ? 'Системная тема' : 'Пользовательская тема',
-            ),
-            // Кнопка переключения режима
-            IconButton(
-              icon: Icon(_isEditMode ? Icons.visibility : Icons.edit),
-              onPressed: _toggleEditMode,
-              tooltip: _isEditMode ? 'Просмотр' : 'Редактировать',
             ),
             if (_isEditMode)
               IconButton(
@@ -302,11 +306,29 @@ class _EditorPageState extends State<EditorPage> {
                 onPressed: _showPreview,
                 tooltip: 'Открыть в отдельном окне',
               ),
+            IconButton(
+              icon: const Icon(Icons.code),
+              onPressed: _showSerializationExample,
+              tooltip: 'Пример сериализации',
+            ),
+            IconButton(
+              icon: const Icon(Icons.format_align_left),
+              onPressed: _showFormatConversionExample,
+              tooltip: 'Пример форматирования',
+            ),
           ],
         ),
         body:
             _isEditMode
-                ? CustomEditor(initialDocument: _document, onDocumentChanged: _onDocumentChanged)
+                ? CustomEditor(
+                  initialDocument: _document,
+                  onDocumentChanged: _onDocumentChanged,
+                  fileToUrlConverter: (Uint8List fileData, String fileName) async {
+                    // Пример имитации загрузки файла
+                    await Future.delayed(const Duration(milliseconds: 800));
+                    return 'https://example.com/images/$fileName';
+                  },
+                )
                 : SingleChildScrollView(
                   child: Padding(padding: const EdgeInsets.all(16.0), child: DocumentViewer(document: _document)),
                 ),

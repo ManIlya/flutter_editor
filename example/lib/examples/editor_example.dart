@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart' hide TextSpan;
 import 'package:flutter_editor/flutter_editor.dart';
+import 'dart:typed_data';
+import 'package:flutter_editor/src/widgets/toolbar.dart';
 
 /// Пример интеграции редактора в другое приложение с пользовательской темой
 class EditorIntegrationExample extends StatelessWidget {
@@ -52,6 +54,20 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
     _document = DocumentModel(
       elements: [
         TextElement(text: 'Это пример интеграции редактора в ваше приложение с использованием ThemeExtension.'),
+        TextElement(
+          text:
+              'Попробуйте выделить текст и нажать на пользовательскую иконку в панели инструментов для изменения цвета текста.',
+        ),
+        ImageElement(
+          imageUrl: 'https://images.unsplash.com/photo-1501854140801-50d01698950b',
+          caption: 'Пример изображения',
+          width: 400,
+          height: 200,
+        ),
+        TextElement(
+          text:
+              'Также можно выбрать изображение и применить к нему действие с помощью пользовательской иконки тулбара.',
+        ),
       ],
     );
   }
@@ -94,9 +110,102 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
         fontWeight: FontWeight.bold,
         color: secondaryColor,
         fontFamily: 'Roboto',
-      ), titleTextStyle: const TextStyle(fontSize: 24.0, color: textColor, fontFamily: 'Roboto'),
-     subtitleTextStyle: const TextStyle(fontSize: 32.0, color: textColor, fontFamily: 'Roboto'),
+      ),
+      titleTextStyle: const TextStyle(fontSize: 24.0, color: textColor, fontFamily: 'Roboto'),
+      subtitleTextStyle: const TextStyle(fontSize: 20.0, color: textColor, fontFamily: 'Roboto'),
     );
+  }
+
+  // Пример обработчика для изменения цвета выделенного текста
+  void _handleColorText(EditorSelectionContext context) {
+    if (context.type == SelectedElementType.text &&
+        context.elementIndex != null &&
+        context.textSelection != null &&
+        context.textElement != null) {
+      // Получаем элемент текста
+      final textElement = context.textElement!;
+      // Получаем диапазон выделения
+      final start = context.textSelection!.start;
+      final end = context.textSelection!.end;
+
+      if (start < end) {
+        // Создаем новый стиль с цветом текста
+        final newColor = Colors.red;
+        final currentStyle = textElement.styleAt(start) ?? const TextStyleAttributes();
+        final newStyle = currentStyle.copyWith(color: newColor);
+
+        // Применяем стиль к выделенному тексту
+        textElement.applyStyle(newStyle, start, end);
+
+        // Обновляем состояние (документ изменился)
+        setState(() {});
+      }
+    }
+  }
+
+  // Пример обработчика для обработки изображения
+  void _handleProcessImage(EditorSelectionContext context) {
+    if (context.type == SelectedElementType.image && context.elementIndex != null && context.imageElement != null) {
+      // Получаем элемент изображения
+      final imageElement = context.imageElement!;
+      final elementIndex = context.elementIndex!;
+
+      // Меняем размер изображения
+      final newImageElement = imageElement.copyWith(
+        width: imageElement.width * 0.8,
+        height: imageElement.height * 0.8,
+        caption: '${imageElement.caption} (уменьшено)',
+      );
+
+      // Обновляем элемент в документе
+      setState(() {
+        _document.elements[elementIndex] = newImageElement;
+      });
+    }
+  }
+
+  // Создаем список пользовательских иконок для тулбара
+  List<CustomToolbarItem> _buildCustomToolbarItems() {
+    return [
+      // Иконка для изменения цвета текста (активна только для текста)
+      CustomToolbarItem(
+        icon: Icons.format_color_text,
+        tooltip: 'Сделать текст красным',
+        onAction: _handleColorText,
+        color: Colors.red,
+        enableOnlyWithSelection: true,
+        enabledForTypes: {SelectedElementType.text},
+      ),
+
+      // Иконка для изменения размера изображения (активна только для изображений)
+      CustomToolbarItem(
+        icon: Icons.photo_size_select_small,
+        tooltip: 'Уменьшить изображение',
+        onAction: _handleProcessImage,
+        enableOnlyWithSelection: true,
+        enabledForTypes: {SelectedElementType.image},
+      ),
+
+      // Универсальная иконка, доступная всегда
+      CustomToolbarItem(
+        icon: Icons.info_outline,
+        tooltip: 'Справка',
+        onPressed: () {
+          showDialog(
+            context: context,
+            builder:
+                (context) => AlertDialog(
+                  title: const Text('Справка по редактору'),
+                  content: const Text(
+                    'Это пример пользовательской иконки тулбара, которая доступна всегда.\n\n'
+                    'Другие иконки активны только при выделении соответствующего типа контента (текст или изображение).',
+                  ),
+                  actions: [TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Закрыть'))],
+                ),
+          );
+        },
+      ),
+    ];
   }
 
   @override
@@ -151,8 +260,30 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
                         _document = newDoc;
                       });
                     },
+                    enableLogging: false,
+                    // Добавляем пользовательские иконки тулбара
+                    customToolbarItems: _buildCustomToolbarItems(),
+                    // Пример функции для преобразования файла в URL
+                    fileToUrlConverter: (Uint8List fileData, String fileName) async {
+                      // В реальном приложении здесь должен быть код загрузки файла на сервер
+                      // и получения URL. Сейчас просто возвращаем примерную ссылку для демонстрации.
+
+                      // Пример имитации загрузки файла
+                      await Future.delayed(const Duration(seconds: 1));
+
+                      // Для тестовых целей можно вывести размер файла
+                      print('Загружаемый файл: $fileName, размер: ${fileData.length} байт');
+
+                      // Возвращаем фиктивный URL
+                      return 'https://example.com/uploaded_images/$fileName';
+
+                      // Если возвращается null, будет использовано изображение по умолчанию
+                    },
+                    // Высота области редактирования (по умолчанию 750px)
+                    // Если null, будет использована вся доступная высота
+                    editorHeight: 500, // Можно указать конкретную высоту или null
                   )
-                  : DocumentViewer(document: _document),
+                  : DocumentViewer(document: _document, enableLogging: false),
         ),
       ),
     );
@@ -184,6 +315,14 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
 ///      onDocumentChanged: (newDoc) {
 ///        // Обработка изменений документа
 ///      },
+///      // Функция для загрузки файла изображения и получения URL
+///      fileToUrlConverter: (Uint8List fileData, String fileName) async {
+///        // Загрузка файла на сервер и получение URL
+///        return 'https://your-server.com/images/$fileName';
+///      },
+///      // Высота области редактирования (по умолчанию 750px)
+///      // Если null, будет использована вся доступная высота
+///      editorHeight: 500, // Можно указать конкретную высоту или null
 ///    )
 ///    
 ///    // Для просмотра:

@@ -1,16 +1,50 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/gestures.dart';
 import 'package:float_column/float_column.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:image_picker/image_picker.dart' as picker;
 import 'dart:math';
 import 'dart:ui' show lerpDouble;
+import 'dart:typed_data';
 import 'package:flutter_editor/flutter_editor.dart';
+import '../widgets/toolbar.dart';
+
+/// Тип источника изображения
+enum ImageSourceType {
+  /// URL-ссылка на изображение
+  link,
+
+  /// Файл изображения с устройства
+  file,
+}
+
+/// Функция для преобразования файла в URL
+typedef FileToUrlConverter = Future<String?> Function(Uint8List fileData, String fileName);
 
 class CustomEditor extends StatefulWidget {
   final DocumentModel initialDocument;
   final Function(DocumentModel)? onDocumentChanged;
+  final bool enableLogging;
 
-  const CustomEditor({Key? key, required this.initialDocument, this.onDocumentChanged}) : super(key: key);
+  /// Колбэк для преобразования файла изображения в URL
+  /// Если не указан, будет использовано изображение по умолчанию
+  final FileToUrlConverter? fileToUrlConverter;
+
+  /// Список пользовательских иконок для панели инструментов
+  final List<CustomToolbarItem>? customToolbarItems;
+
+  /// Высота области редактирования в пикселях
+  /// Если не указано (null), будет использована вся доступная высота
+  final double? editorHeight;
+
+  const CustomEditor({
+    Key? key,
+    required this.initialDocument,
+    this.onDocumentChanged,
+    this.enableLogging = false,
+    this.fileToUrlConverter,
+    this.customToolbarItems,
+    this.editorHeight = 750,
+  }) : super(key: key);
 
   @override
   State<CustomEditor> createState() => _CustomEditorState();
@@ -37,16 +71,45 @@ class _CustomEditorState extends State<CustomEditor> {
   }
 
   void _addImage() async {
-    final ImagePicker picker = ImagePicker();
-    final XFile? image = await picker.pickImage(source: ImageSource.gallery);
+    // Показываем диалог выбора источника изображения
+    final selectedSource = await _showImageSourceDialog();
+    if (selectedSource == null) return;
 
-    if (image == null) return;
+    String? imageUrl;
 
-    // В данном примере мы будем использовать заданную в задании картинку вместо выбранной
+    if (selectedSource == ImageSourceType.file) {
+      // Выбираем изображение из галереи
+      final picker.ImagePicker imagePicker = picker.ImagePicker();
+      final picker.XFile? imageFile = await imagePicker.pickImage(source: picker.ImageSource.gallery);
+
+      if (imageFile == null) return;
+
+      // Если есть конвертер файла в URL, используем его
+      if (widget.fileToUrlConverter != null) {
+        // Читаем содержимое файла
+        final Uint8List fileData = await imageFile.readAsBytes();
+        // Передаем содержимое и имя файла в колбэк
+        imageUrl = await widget.fileToUrlConverter!(fileData, imageFile.name);
+      }
+
+      // Если URL не получен, используем заглушку
+      if (imageUrl == null) {
+        if (widget.enableLogging) print('URL изображения не получен, используем заглушку');
+        imageUrl = 'https://storage.yandexcloud.net/vrnm/aad3dc7c4ebeed752ec109_800.jpg';
+      }
+    } else {
+      // Показываем диалог ввода URL
+      imageUrl = await _showImageUrlDialog();
+      if (imageUrl == null || imageUrl.isEmpty) return;
+    }
+
+    // Создаем элемент изображения
     final imageElement = ImageElement(
-      imageUrl: 'https://storage.yandexcloud.net/vrnm/aad3dc7c4ebeed752ec109_800.jpg',
-      caption: 'Пример изображения',
+      imageUrl: imageUrl,
+      caption: '',
       alignment: Alignment.center,
+      sizePercent: 40.0, // 50% от ширины экрана по умолчанию
+      sizeType: 'screen', // Всегда используем процент от экрана
     );
 
     setState(() {
@@ -56,31 +119,84 @@ class _CustomEditorState extends State<CustomEditor> {
     });
   }
 
+  // Показывает диалог выбора источника изображения
+  Future<ImageSourceType?> _showImageSourceDialog() async {
+    return await showDialog<ImageSourceType>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Добавить изображение'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.link),
+                title: const Text('Вставить ссылку'),
+                onTap: () => Navigator.of(context).pop(ImageSourceType.link),
+              ),
+              ListTile(
+                leading: const Icon(Icons.photo_library),
+                title: const Text('Выбрать из галереи'),
+                onTap: () => Navigator.of(context).pop(ImageSourceType.file),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // Показывает диалог ввода URL изображения
+  Future<String?> _showImageUrlDialog() async {
+    final TextEditingController controller = TextEditingController();
+
+    return await showDialog<String>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: const Text('Вставить ссылку на изображение'),
+          content: TextField(
+            controller: controller,
+            decoration: const InputDecoration(hintText: 'https://example.com/image.jpg', labelText: 'URL изображения'),
+          ),
+          actions: [
+            TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Отмена')),
+            TextButton(onPressed: () => Navigator.of(context).pop(controller.text), child: const Text('Добавить')),
+          ],
+        );
+      },
+    );
+  }
+
   void _updateTextElement(int index, String newText) {
     if (index >= 0 && index < _document.elements.length) {
       if (_document.elements[index] is TextElement) {
         final textElement = _document.elements[index] as TextElement;
 
-        print('════════════════════════════════════════════');
-        print('📝 ОБНОВЛЕНИЕ ТЕКСТОВОГО ЭЛЕМЕНТА #$index:');
-        print('Старый текст: "${textElement.text}"');
-        print('Новый текст: "$newText"');
+        if (widget.enableLogging) {
+          print('════════════════════════════════════════════');
+          print('📝 ОБНОВЛЕНИЕ ТЕКСТОВОГО ЭЛЕМЕНТА #$index:');
+          print('Старый текст: "${textElement.text}"');
+          print('Новый текст: "$newText"');
+        }
 
         // Логируем структуру спанов до обновления
-        print('СТРУКТУРА СПАНОВ ДО ОБНОВЛЕНИЯ:');
-        int currentPos = 0;
-        for (int i = 0; i < textElement.spans.length; i++) {
-          final span = textElement.spans[i];
-          final spanStart = currentPos;
-          final spanEnd = currentPos + span.text.length;
+        if (widget.enableLogging) {
+          print('СТРУКТУРА СПАНОВ ДО ОБНОВЛЕНИЯ:');
+          int currentPos = 0;
+          for (int i = 0; i < textElement.spans.length; i++) {
+            final span = textElement.spans[i];
+            final spanStart = currentPos;
+            final spanEnd = currentPos + span.text.length;
 
-          final bool isBold = span.style.bold;
-          final bool isItalic = span.style.italic;
-          final bool isUnderline = span.style.underline;
-          final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
+            final bool isBold = span.style.bold;
+            final bool isItalic = span.style.italic;
+            final bool isUnderline = span.style.underline;
+            final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
-          print('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
-          currentPos = spanEnd;
+            print('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
+            currentPos = spanEnd;
+          }
         }
 
         // Сохраняем текст для отложенного обновления
@@ -91,7 +207,8 @@ class _CustomEditorState extends State<CustomEditor> {
           if (mounted) {
             if (_selection != null && _selection!.start != _selection!.end) {
               // Если есть активное выделение, обновляем текст с сохранением стилей
-              print('Обновление текста с активным выделением: ${_selection!.start}-${_selection!.end}');
+              if (widget.enableLogging)
+                print('Обновление текста с активным выделением: ${_selection!.start}-${_selection!.end}');
 
               // Важно! TextEditor сам управляет форматированием текста
               // и передает только newText, но не spans
@@ -102,32 +219,34 @@ class _CustomEditorState extends State<CustomEditor> {
               // Обычное обновление текста
               if (textElement.spans.length <= 1) {
                 textElement.text = updatedText;
-                print('Обновлен текст элемента (один спан)');
+                if (widget.enableLogging) print('Обновлен текст элемента (один спан)');
               } else {
-                print('Обновление текста с сохранением структуры спанов...');
+                if (widget.enableLogging) print('Обновление текста с сохранением структуры спанов...');
                 _updateTextElementWithSpans(textElement, updatedText);
               }
             }
 
             // Логируем структуру спанов после обновления
-            print('СТРУКТУРА СПАНОВ ПОСЛЕ ОБНОВЛЕНИЯ:');
-            int posAfter = 0;
-            for (int i = 0; i < textElement.spans.length; i++) {
-              final span = textElement.spans[i];
-              final spanStart = posAfter;
-              final spanEnd = posAfter + span.text.length;
+            if (widget.enableLogging) {
+              print('СТРУКТУРА СПАНОВ ПОСЛЕ ОБНОВЛЕНИЯ:');
+              int posAfter = 0;
+              for (int i = 0; i < textElement.spans.length; i++) {
+                final span = textElement.spans[i];
+                final spanStart = posAfter;
+                final spanEnd = posAfter + span.text.length;
 
-              final bool isBold = span.style.bold;
-              final bool isItalic = span.style.italic;
-              final bool isUnderline = span.style.underline;
-              final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
+                final bool isBold = span.style.bold;
+                final bool isItalic = span.style.italic;
+                final bool isUnderline = span.style.underline;
+                final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
-              print(
-                'Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"',
-              );
-              posAfter = spanEnd;
+                print(
+                  'Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"',
+                );
+                posAfter = spanEnd;
+              }
+              print('════════════════════════════════════════════');
             }
-            print('════════════════════════════════════════════');
 
             // Единый вызов на обновление состояния
             if (mounted) {
@@ -167,14 +286,16 @@ class _CustomEditorState extends State<CustomEditor> {
   void _updateTextElementWithSpans(TextElement element, String newText) {
     final String oldText = element.text;
 
-    print('════════════════════════════════════════════');
-    print('🔄 ОБНОВЛЕНИЕ ТЕКСТА С СОХРАНЕНИЕМ СТИЛЕЙ:');
-    print('Старый текст: "$oldText"');
-    print('Новый текст: "$newText"');
+    if (widget.enableLogging) {
+      print('════════════════════════════════════════════');
+      print('🔄 ОБНОВЛЕНИЕ ТЕКСТА С СОХРАНЕНИЕМ СТИЛЕЙ:');
+      print('Старый текст: "$oldText"');
+      print('Новый текст: "$newText"');
+    }
 
     // Если нет изменений, ничего не делаем
     if (oldText == newText) {
-      print('Текст не изменился, выходим без изменений.');
+      if (widget.enableLogging) print('Текст не изменился, выходим без изменений.');
       return;
     }
 
@@ -192,19 +313,19 @@ class _CustomEditorState extends State<CustomEditor> {
       commonPrefixLength++;
     }
 
-    print('Найден общий префикс длиной $commonPrefixLength символов');
+    if (widget.enableLogging) print('Найден общий префикс длиной $commonPrefixLength символов');
 
     // Если у нас добавление текста
     if (isAddition) {
-      print('➕ Обнаружено добавление текста');
+      if (widget.enableLogging) print('➕ Обнаружено добавление текста');
 
       // Позиция, где был добавлен новый текст
       final insertPosition = commonPrefixLength;
       final addedLength = newText.length - oldText.length;
       final addedText = newText.substring(insertPosition, insertPosition + addedLength);
 
-      print('Позиция вставки: $insertPosition');
-      print('Добавленный текст: "$addedText"');
+      if (widget.enableLogging) print('Позиция вставки: $insertPosition');
+      if (widget.enableLogging) print('Добавленный текст: "$addedText"');
 
       // Создаем новые спаны
       List<TextSpanDocument> newSpans = [];
@@ -215,40 +336,41 @@ class _CustomEditorState extends State<CustomEditor> {
         final spanStart = currentPos;
         final spanEnd = currentPos + span.text.length;
 
-        print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+        if (widget.enableLogging) print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
 
         // Если вставка произошла внутри этого спана
         if (insertPosition >= spanStart && insertPosition <= spanEnd) {
-          print('Вставка произошла в спане #$i');
+          if (widget.enableLogging) print('Вставка произошла в спане #$i');
 
           // Текст до вставки
           if (insertPosition > spanStart) {
             final beforeText = span.text.substring(0, insertPosition - spanStart);
             newSpans.add(TextSpanDocument(text: beforeText, style: span.style));
-            print('Добавлен текст до вставки: "$beforeText" (тот же стиль)');
+            if (widget.enableLogging) print('Добавлен текст до вставки: "$beforeText" (тот же стиль)');
           }
 
           // Добавленный текст (с тем же стилем, что и спан, где произошла вставка)
           newSpans.add(TextSpanDocument(text: addedText, style: span.style));
-          print('Добавлен новый текст: "$addedText" (стиль: bold=${span.style.bold}, italic=${span.style.italic})');
+          if (widget.enableLogging)
+            print('Добавлен новый текст: "$addedText" (стиль: bold=${span.style.bold}, italic=${span.style.italic})');
 
           // Текст после вставки
           if (insertPosition - spanStart < span.text.length) {
             final afterText = span.text.substring(insertPosition - spanStart);
             newSpans.add(TextSpanDocument(text: afterText, style: span.style));
-            print('Добавлен текст после вставки: "$afterText" (тот же стиль)');
+            if (widget.enableLogging) print('Добавлен текст после вставки: "$afterText" (тот же стиль)');
           }
         }
         // Если спан полностью до места вставки
         else if (spanEnd <= insertPosition) {
           newSpans.add(span);
-          print('Спан до места вставки, добавлен без изменений');
+          if (widget.enableLogging) print('Спан до места вставки, добавлен без изменений');
         }
         // Если спан полностью после места вставки
         else {
           final textAfterInsert = span.text;
           newSpans.add(TextSpanDocument(text: textAfterInsert, style: span.style));
-          print('Спан после места вставки, добавлен с текстом: "$textAfterInsert"');
+          if (widget.enableLogging) print('Спан после места вставки, добавлен с текстом: "$textAfterInsert"');
         }
 
         currentPos = spanEnd;
@@ -256,18 +378,18 @@ class _CustomEditorState extends State<CustomEditor> {
 
       // Проверяем, что мы создали хотя бы один спан
       if (newSpans.isEmpty) {
-        print('Не удалось создать спаны, используем стиль первого спана для всего текста');
+        if (widget.enableLogging) print('Не удалось создать спаны, используем стиль первого спана для всего текста');
         final style = element.spans.isNotEmpty ? element.spans[0].style : TextStyleAttributes();
         element.spans = [TextSpanDocument(text: newText, style: style)];
       } else {
         // Объединяем соседние спаны с одинаковыми стилями для оптимизации
         element.spans = _mergeAdjacentSpans(newSpans);
-        print('Созданы новые спаны с сохранением форматирования (${element.spans.length})');
+        if (widget.enableLogging) print('Созданы новые спаны с сохранением форматирования (${element.spans.length})');
       }
     }
     // Если у нас удаление текста
     else if (isDeletion) {
-      print('➖ Обнаружено удаление текста');
+      if (widget.enableLogging) print('➖ Обнаружено удаление текста');
 
       // Ищем общий суффикс
       int commonSuffixLength = 0;
@@ -281,8 +403,8 @@ class _CustomEditorState extends State<CustomEditor> {
       final deleteEnd = oldText.length - commonSuffixLength;
       final deletedText = oldText.substring(deleteStart, deleteEnd);
 
-      print('Позиция удаления: $deleteStart-$deleteEnd');
-      print('Удаленный текст: "$deletedText"');
+      if (widget.enableLogging) print('Позиция удаления: $deleteStart-$deleteEnd');
+      if (widget.enableLogging) print('Удаленный текст: "$deletedText"');
 
       // Строим новые спаны с учетом удаления
       List<TextSpanDocument> newSpans = [];
@@ -293,12 +415,12 @@ class _CustomEditorState extends State<CustomEditor> {
         final spanStart = currentPos;
         final spanEnd = currentPos + span.text.length;
 
-        print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+        if (widget.enableLogging) print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
 
         // Спан полностью до удаления
         if (spanEnd <= deleteStart) {
           newSpans.add(span);
-          print('Спан до удаления, добавлен без изменений');
+          if (widget.enableLogging) print('Спан до удаления, добавлен без изменений');
         }
         // Спан полностью после удаления
         else if (spanStart >= deleteEnd) {
@@ -306,7 +428,7 @@ class _CustomEditorState extends State<CustomEditor> {
           final newSpanStart = spanStart - (deleteEnd - deleteStart);
           final newText = span.text;
           newSpans.add(TextSpanDocument(text: newText, style: span.style));
-          print('Спан после удаления, добавлен с текстом: "$newText"');
+          if (widget.enableLogging) print('Спан после удаления, добавлен с текстом: "$newText"');
         }
         // Спан пересекается с удалением
         else {
@@ -314,14 +436,14 @@ class _CustomEditorState extends State<CustomEditor> {
           if (spanStart < deleteStart) {
             final beforeText = span.text.substring(0, deleteStart - spanStart);
             newSpans.add(TextSpanDocument(text: beforeText, style: span.style));
-            print('Добавлена часть спана до удаления: "$beforeText"');
+            if (widget.enableLogging) print('Добавлена часть спана до удаления: "$beforeText"');
           }
 
           // Часть после удаления
           if (spanEnd > deleteEnd) {
             final afterText = span.text.substring(deleteEnd - spanStart);
             newSpans.add(TextSpanDocument(text: afterText, style: span.style));
-            print('Добавлена часть спана после удаления: "$afterText"');
+            if (widget.enableLogging) print('Добавлена часть спана после удаления: "$afterText"');
           }
         }
 
@@ -330,31 +452,31 @@ class _CustomEditorState extends State<CustomEditor> {
 
       // Проверяем, что мы создали хотя бы один спан
       if (newSpans.isEmpty) {
-        print('Не удалось создать спаны, используем стиль первого спана для всего текста');
+        if (widget.enableLogging) print('Не удалось создать спаны, используем стиль первого спана для всего текста');
         final style = element.spans.isNotEmpty ? element.spans[0].style : TextStyleAttributes();
         element.spans = [TextSpanDocument(text: newText, style: style)];
       } else {
         // Объединяем соседние спаны с одинаковыми стилями для оптимизации
         element.spans = _mergeAdjacentSpans(newSpans);
-        print('Созданы новые спаны с сохранением форматирования (${element.spans.length})');
+        if (widget.enableLogging) print('Созданы новые спаны с сохранением форматирования (${element.spans.length})');
       }
     }
     // В редких случаях, когда мы не можем точно определить изменение
     else {
-      print('⚠️ Не удалось определить точный тип изменения');
+      if (widget.enableLogging) print('⚠️ Не удалось определить точный тип изменения');
 
       // Сохраняем хотя бы текст
       element.text = newText;
     }
 
-    print('════════════════════════════════════════════');
+    if (widget.enableLogging) print('════════════════════════════════════════════');
   }
 
   // Объединяет соседние спаны с одинаковыми стилями
   List<TextSpanDocument> _mergeAdjacentSpans(List<TextSpanDocument> spans) {
     if (spans.length <= 1) return spans;
 
-    print('Объединение соседних спанов с одинаковыми стилями...');
+    if (widget.enableLogging) print('Объединение соседних спанов с одинаковыми стилями...');
     final result = <TextSpanDocument>[];
     TextSpanDocument? currentSpan;
 
@@ -364,7 +486,7 @@ class _CustomEditorState extends State<CustomEditor> {
       } else if (_areStylesEqual(currentSpan.style, span.style)) {
         // Если стили одинаковые, объединяем текст
         currentSpan = TextSpanDocument(text: currentSpan.text + span.text, style: currentSpan.style);
-        print('Объединены спаны с одинаковыми стилями: "${currentSpan.text}"');
+        if (widget.enableLogging) print('Объединены спаны с одинаковыми стилями: "${currentSpan.text}"');
       } else {
         // Если стили разные, добавляем текущий спан и начинаем новый
         result.add(currentSpan);
@@ -377,7 +499,7 @@ class _CustomEditorState extends State<CustomEditor> {
       result.add(currentSpan);
     }
 
-    print('После объединения: было ${spans.length} спанов, стало ${result.length}');
+    if (widget.enableLogging) print('После объединения: было ${spans.length} спанов, стало ${result.length}');
     return result;
   }
 
@@ -407,7 +529,7 @@ class _CustomEditorState extends State<CustomEditor> {
     setState(() {
       // Запоминаем тип удаляемого элемента для логирования
       final elementType = _document.elements[index] is TextElement ? 'текстовый блок' : 'изображение';
-      print('Удаляем $elementType с индексом $index');
+      if (widget.enableLogging) print('Удаляем $elementType с индексом $index');
 
       // Удаляем элемент из документа
       _document.elements.removeAt(index);
@@ -442,19 +564,20 @@ class _CustomEditorState extends State<CustomEditor> {
         _selection = selection;
 
         // Отладочная информация о выделении
-        print('Выделение: start=${selection.start}, end=${selection.end}');
+        if (widget.enableLogging) print('Выделение: start=${selection.start}, end=${selection.end}');
 
         // Проверим, действительно ли это выделение (не просто курсор)
         if (selection.start != selection.end && _selectedIndex != null) {
-          print('Текст выделен от ${selection.start} до ${selection.end}');
+          if (widget.enableLogging) print('Текст выделен от ${selection.start} до ${selection.end}');
 
           // Проверим стиль текущего выделения для отладки
           if (_document.elements[_selectedIndex!] is TextElement) {
             final textElement = _document.elements[_selectedIndex!] as TextElement;
             final style = textElement.styleAt(selection.start);
-            print(
-              'Стиль выделенного текста: bold=${style?.bold}, italic=${style?.italic}, underline=${style?.underline}',
-            );
+            if (widget.enableLogging)
+              print(
+                'Стиль выделенного текста: bold=${style?.bold}, italic=${style?.italic}, underline=${style?.underline}',
+              );
           }
         }
       });
@@ -503,30 +626,61 @@ class _CustomEditorState extends State<CustomEditor> {
     if (_document.elements[_selectedIndex!] is TextElement) {
       final textElement = _document.elements[_selectedIndex!] as TextElement;
 
-      print('════════════════════════════════════════════');
-      print('🧹 СБРОС ФОРМАТИРОВАНИЯ:');
-      print('Диапазон: ${_selection!.start}-${_selection!.end}');
+      if (widget.enableLogging) {
+        print('════════════════════════════════════════════');
+        print('🧹 СБРОС ФОРМАТИРОВАНИЯ:');
+        print('Диапазон: ${_selection!.start}-${_selection!.end}');
+      }
 
       // Создаем стиль без форматирования
       final plainStyle = TextStyleAttributes(bold: false, italic: false, underline: false, link: null);
 
-      print('Новый стиль: bold=false, italic=false, underline=false, link=null');
+      if (widget.enableLogging) print('Новый стиль: bold=false, italic=false, underline=false, link=null');
 
       setState(() {
         textElement.applyStyle(plainStyle, _selection!.start, _selection!.end);
         _notifyDocumentChanged();
 
-        print('Форматирование сброшено.');
-        print('════════════════════════════════════════════');
+        if (widget.enableLogging) print('Форматирование сброшено.');
+        if (widget.enableLogging) print('════════════════════════════════════════════');
       });
     }
+  }
+
+  /// Создает контекст выделения для EditorToolbar
+  EditorSelectionContext _buildSelectionContext() {
+    if (_selectedIndex == null) {
+      return const EditorSelectionContext(type: SelectedElementType.none);
+    }
+
+    if (_selectedIndex! >= 0 && _selectedIndex! < _document.elements.length) {
+      final element = _document.elements[_selectedIndex!];
+
+      if (element is TextElement) {
+        return EditorSelectionContext(
+          type: SelectedElementType.text,
+          elementIndex: _selectedIndex,
+          textElement: element,
+          textSelection: _selection,
+        );
+      } else if (element is ImageElement) {
+        return EditorSelectionContext(
+          type: SelectedElementType.image,
+          elementIndex: _selectedIndex,
+          imageElement: element,
+        );
+      }
+    }
+
+    return const EditorSelectionContext(type: SelectedElementType.none);
   }
 
   @override
   Widget build(BuildContext context) {
     final editorTheme = EditorThemeExtension.of(context);
 
-    return Column(
+    // Создаем содержимое редактора
+    final editorContent = Column(
       children: [
         Container(
           padding: const EdgeInsets.symmetric(vertical: 8.0, horizontal: 4.0),
@@ -542,10 +696,11 @@ class _CustomEditorState extends State<CustomEditor> {
             onClearFormattingPressed: _clearFormatting,
             onAddImagePressed: _addImage,
             onAddTextPressed: _addNewTextElement,
+            customToolbarItems: widget.customToolbarItems,
+            selectionContext: _buildSelectionContext(),
           ),
         ),
-        if (_selectedIndex != null && _document.elements[_selectedIndex!] is ImageElement)
-          _buildImageFloatToolbar(),
+        if (_selectedIndex != null && _document.elements[_selectedIndex!] is ImageElement) _buildImageFloatToolbar(),
         Expanded(
           child: Container(
             margin: const EdgeInsets.only(top: 8.0),
@@ -561,6 +716,14 @@ class _CustomEditorState extends State<CustomEditor> {
         ),
       ],
     );
+
+    // Если указана высота, оборачиваем весь редактор в контейнер с указанной высотой
+    if (widget.editorHeight != null) {
+      return SizedBox(height: widget.editorHeight, child: editorContent);
+    } else {
+      // Иначе возвращаем содержимое без ограничения высоты
+      return editorContent;
+    }
   }
 
   // Панель инструментов для управления положением изображения
@@ -769,6 +932,7 @@ class _CustomEditorState extends State<CustomEditor> {
               },
               onSelectionChanged: _handleSelectionChanged,
               onDelete: () => _removeElement(index),
+              enableLogging: widget.enableLogging,
             ),
           ),
           // Рукоятка для перетаскивания
@@ -842,25 +1006,48 @@ class _CustomEditorState extends State<CustomEditor> {
               float: float,
               padding: padding,
               maxWidthPercentage: _calculateMaxWidthPercentage(element, float),
-              child: ImageEditor(
-                imageElement: element,
-                isSelected: isSelected,
-                onTap: () {
-                  setState(() {
-                    _selectedIndex = index;
+              child:
+                  float == FCFloat.none
+                      ? Center(
+                        child: ImageEditor(
+                          imageElement: element,
+                          isSelected: isSelected,
+                          onTap: () {
+                            setState(() {
+                              _selectedIndex = index;
 
-                    // Обновляем текущий float для панели инструментов
-                    if (element.alignment == Alignment.centerLeft)
-                      _currentImageFloat = FCFloat.start;
-                    else if (element.alignment == Alignment.centerRight)
-                      _currentImageFloat = FCFloat.end;
-                    else
-                      _currentImageFloat = FCFloat.none;
-                  });
-                },
-                onImageChanged: (newImage) => _updateImageElement(index, newImage),
-                onDelete: () => _removeElement(index),
-              ),
+                              // Обновляем текущий float для панели инструментов
+                              if (element.alignment == Alignment.centerLeft)
+                                _currentImageFloat = FCFloat.start;
+                              else if (element.alignment == Alignment.centerRight)
+                                _currentImageFloat = FCFloat.end;
+                              else
+                                _currentImageFloat = FCFloat.none;
+                            });
+                          },
+                          onImageChanged: (newImage) => _updateImageElement(index, newImage),
+                          onDelete: () => _removeElement(index),
+                        ),
+                      )
+                      : ImageEditor(
+                        imageElement: element,
+                        isSelected: isSelected,
+                        onTap: () {
+                          setState(() {
+                            _selectedIndex = index;
+
+                            // Обновляем текущий float для панели инструментов
+                            if (element.alignment == Alignment.centerLeft)
+                              _currentImageFloat = FCFloat.start;
+                            else if (element.alignment == Alignment.centerRight)
+                              _currentImageFloat = FCFloat.end;
+                            else
+                              _currentImageFloat = FCFloat.none;
+                          });
+                        },
+                        onImageChanged: (newImage) => _updateImageElement(index, newImage),
+                        onDelete: () => _removeElement(index),
+                      ),
             ),
           ),
           // Рукоятка для перетаскивания
@@ -933,6 +1120,7 @@ class _CustomEditorState extends State<CustomEditor> {
                 },
                 onSelectionChanged: _handleSelectionChanged,
                 onDelete: () => _removeElement(i),
+                enableLogging: widget.enableLogging,
               ),
             ),
           ),
@@ -975,25 +1163,48 @@ class _CustomEditorState extends State<CustomEditor> {
                   borderRadius: editorTheme.containerBorderRadius,
                   color: _selectedIndex == i ? editorTheme.selectedBackgroundColor : Colors.transparent,
                 ),
-                child: ImageEditor(
-                  imageElement: element,
-                  isSelected: _selectedIndex == i,
-                  onTap: () {
-                    setState(() {
-                      _selectedIndex = i;
+                child:
+                    float == FCFloat.none
+                        ? Center(
+                          child: ImageEditor(
+                            imageElement: element,
+                            isSelected: _selectedIndex == i,
+                            onTap: () {
+                              setState(() {
+                                _selectedIndex = i;
 
-                      // Обновляем текущий float для панели инструментов
-                      if (element.alignment == Alignment.centerLeft)
-                        _currentImageFloat = FCFloat.start;
-                      else if (element.alignment == Alignment.centerRight)
-                        _currentImageFloat = FCFloat.end;
-                      else
-                        _currentImageFloat = FCFloat.none;
-                    });
-                  },
-                  onImageChanged: (newImage) => _updateImageElement(i, newImage),
-                  onDelete: () => _removeElement(i),
-                ),
+                                // Обновляем текущий float для панели инструментов
+                                if (element.alignment == Alignment.centerLeft)
+                                  _currentImageFloat = FCFloat.start;
+                                else if (element.alignment == Alignment.centerRight)
+                                  _currentImageFloat = FCFloat.end;
+                                else
+                                  _currentImageFloat = FCFloat.none;
+                              });
+                            },
+                            onImageChanged: (newImage) => _updateImageElement(i, newImage),
+                            onDelete: () => _removeElement(i),
+                          ),
+                        )
+                        : ImageEditor(
+                          imageElement: element,
+                          isSelected: _selectedIndex == i,
+                          onTap: () {
+                            setState(() {
+                              _selectedIndex = i;
+
+                              // Обновляем текущий float для панели инструментов
+                              if (element.alignment == Alignment.centerLeft)
+                                _currentImageFloat = FCFloat.start;
+                              else if (element.alignment == Alignment.centerRight)
+                                _currentImageFloat = FCFloat.end;
+                              else
+                                _currentImageFloat = FCFloat.none;
+                            });
+                          },
+                          onImageChanged: (newImage) => _updateImageElement(i, newImage),
+                          onDelete: () => _removeElement(i),
+                        ),
               ),
             ),
           ),
@@ -1022,26 +1233,8 @@ class _CustomEditorState extends State<CustomEditor> {
       return 1.0;
     }
 
-    // Получаем ширину экрана
-    final screenWidth = MediaQuery.of(context).size.width;
-
-    // В зависимости от типа размера выбираем значение maxWidthPercentage
-    switch (imageElement.sizeType) {
-      case 'original':
-        // Для оригинального размера рассчитываем процент от ширины экрана без ограничений
-        final imageWidth = imageElement.width;
-
-        // Рассчитываем точный процент относительно ширины экрана
-        return imageWidth / screenWidth;
-
-      case 'screen':
-        // Для процента от экрана используем точное значение, указанное пользователем
-        // Преобразуем процент (0-100) в долю (0.0-1.0)
-        return imageElement.sizePercent / 100;
-
-      default:
-        // По умолчанию используем 40% от ширины экрана
-        return 0.4;
-    }
+    // Для процента от экрана используем точное значение, указанное пользователем
+    // Преобразуем процент (0-100) в долю (0.0-1.0)
+    return imageElement.sizePercent / 100;
   }
 }

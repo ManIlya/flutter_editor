@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'dart:convert';
+import 'html_document_parser.dart';
 
 /// Тип элемента документа
 enum DocumentElementType { text, image }
@@ -22,7 +24,11 @@ class TextStyleAttributes {
     this.link, // Ссылка может быть null
     this.alignment = TextAlign.left, // По умолчанию выравнивание по левому краю
   });
-  factory TextStyleAttributes.fromTextStyle({required TextStyle textStyle, String? link, TextAlign alignment = TextAlign.left}) => TextStyleAttributes(
+  factory TextStyleAttributes.fromTextStyle({
+    required TextStyle textStyle,
+    String? link,
+    TextAlign alignment = TextAlign.left,
+  }) => TextStyleAttributes(
     bold: textStyle.fontWeight == FontWeight.bold,
     italic: textStyle.fontStyle == FontStyle.italic,
     underline: textStyle.decoration == TextDecoration.underline,
@@ -31,7 +37,6 @@ class TextStyleAttributes {
     link: link,
     alignment: alignment,
   );
-
 
   TextStyleAttributes copyWith({
     bool? bold,
@@ -264,7 +269,10 @@ class TextElement extends DocumentElement {
 
       if (overlapStart < overlapEnd) {
         result.add(
-          TextSpanDocument(text: span.text.substring(overlapStart - spanStart, overlapEnd - spanStart), style: span.style),
+          TextSpanDocument(
+            text: span.text.substring(overlapStart - spanStart, overlapEnd - spanStart),
+            style: span.style,
+          ),
         );
       }
 
@@ -325,7 +333,7 @@ class ImageElement extends DocumentElement {
     this.originalWidth,
     this.originalHeight,
     this.sizePercent = 100.0,
-    this.sizeType = 'absolute',
+    this.sizeType = 'screen',
   }) : super(type: DocumentElementType.image);
 
   /// Создает копию элемента с новыми значениями
@@ -374,5 +382,216 @@ class DocumentModel {
 
   DocumentModel copy() {
     return DocumentModel(elements: List.from(elements));
+  }
+
+  /// Преобразует DocumentModel в JSON строку
+  String toJson() {
+    final jsonMap = {
+      'elements':
+          elements.map((element) {
+            if (element is TextElement) {
+              return {
+                'type': 'text',
+                'spans':
+                    element.spans
+                        .map(
+                          (span) => {
+                            'text': span.text,
+                            'style': {
+                              'bold': span.style.bold,
+                              'italic': span.style.italic,
+                              'underline': span.style.underline,
+                              'color': span.style.color?.value,
+                              'fontSize': span.style.fontSize,
+                              'link': span.style.link,
+                              'alignment': _serializeTextAlign(span.style.alignment),
+                            },
+                          },
+                        )
+                        .toList(),
+              };
+            } else if (element is ImageElement) {
+              return {
+                'type': 'image',
+                'imageUrl': element.imageUrl,
+                'caption': element.caption,
+                'width': element.width,
+                'height': element.height,
+                'alignment': _serializeAlignment(element.alignment),
+                'paragraphText': element.paragraphText,
+                'originalWidth': element.originalWidth,
+                'originalHeight': element.originalHeight,
+                'sizePercent': element.sizePercent,
+                'sizeType': element.sizeType,
+              };
+            }
+            throw Exception('Неизвестный тип элемента');
+          }).toList(),
+    };
+    return jsonEncode(jsonMap);
+  }
+
+  /// Создает DocumentModel из JSON строки
+  static DocumentModel fromJson(String jsonString) {
+    final Map<String, dynamic> json = jsonDecode(jsonString);
+    final List<dynamic> elementsJson = json['elements'];
+
+    final List<DocumentElement> elements =
+        elementsJson.map((elementJson) {
+          final String type = elementJson['type'];
+
+          if (type == 'text') {
+            final List<dynamic> spansJson = elementJson['spans'];
+            final List<TextSpanDocument> spans =
+                spansJson.map((spanJson) {
+                  final style = spanJson['style'];
+                  return TextSpanDocument(
+                    text: spanJson['text'],
+                    style: TextStyleAttributes(
+                      bold: style['bold'] ?? false,
+                      italic: style['italic'] ?? false,
+                      underline: style['underline'] ?? false,
+                      color: style['color'] != null ? Color(style['color']) : null,
+                      fontSize: style['fontSize']?.toDouble() ?? 14.0,
+                      link: style['link'],
+                      alignment: _deserializeTextAlign(style['alignment']),
+                    ),
+                  );
+                }).toList();
+
+            final textElement = TextElement(text: '');
+            textElement.spans = spans;
+            return textElement;
+          } else if (type == 'image') {
+            return ImageElement(
+              imageUrl: elementJson['imageUrl'],
+              caption: elementJson['caption'] ?? '',
+              width: elementJson['width']?.toDouble() ?? 300.0,
+              height: elementJson['height']?.toDouble() ?? 200.0,
+              alignment: _deserializeAlignment(elementJson['alignment']),
+              paragraphText: elementJson['paragraphText'],
+              originalWidth: elementJson['originalWidth']?.toDouble(),
+              originalHeight: elementJson['originalHeight']?.toDouble(),
+              sizePercent: elementJson['sizePercent']?.toDouble() ?? 100.0,
+              sizeType: elementJson['sizeType'] ?? 'screen',
+            );
+          }
+          throw Exception('Неизвестный тип элемента: $type');
+        }).toList();
+
+    return DocumentModel(elements: elements);
+  }
+
+  // Вспомогательные методы для сериализации
+
+  static String _serializeTextAlign(TextAlign align) {
+    switch (align) {
+      case TextAlign.left:
+        return 'left';
+      case TextAlign.center:
+        return 'center';
+      case TextAlign.right:
+        return 'right';
+      case TextAlign.justify:
+        return 'justify';
+      case TextAlign.start:
+        return 'start';
+      case TextAlign.end:
+        return 'end';
+      default:
+        return 'left';
+    }
+  }
+
+  static TextAlign _deserializeTextAlign(String? align) {
+    switch (align) {
+      case 'left':
+        return TextAlign.left;
+      case 'center':
+        return TextAlign.center;
+      case 'right':
+        return TextAlign.right;
+      case 'justify':
+        return TextAlign.justify;
+      case 'start':
+        return TextAlign.start;
+      case 'end':
+        return TextAlign.end;
+      default:
+        return TextAlign.left;
+    }
+  }
+
+  static String _serializeAlignment(AlignmentGeometry alignment) {
+    if (alignment == Alignment.center) return 'center';
+    if (alignment == Alignment.centerLeft) return 'centerLeft';
+    if (alignment == Alignment.centerRight) return 'centerRight';
+    if (alignment == Alignment.topCenter) return 'topCenter';
+    if (alignment == Alignment.topLeft) return 'topLeft';
+    if (alignment == Alignment.topRight) return 'topRight';
+    if (alignment == Alignment.bottomCenter) return 'bottomCenter';
+    if (alignment == Alignment.bottomLeft) return 'bottomLeft';
+    if (alignment == Alignment.bottomRight) return 'bottomRight';
+    return 'center'; // По умолчанию центр
+  }
+
+  static AlignmentGeometry _deserializeAlignment(String? alignment) {
+    switch (alignment) {
+      case 'center':
+        return Alignment.center;
+      case 'centerLeft':
+        return Alignment.centerLeft;
+      case 'centerRight':
+        return Alignment.centerRight;
+      case 'topCenter':
+        return Alignment.topCenter;
+      case 'topLeft':
+        return Alignment.topLeft;
+      case 'topRight':
+        return Alignment.topRight;
+      case 'bottomCenter':
+        return Alignment.bottomCenter;
+      case 'bottomLeft':
+        return Alignment.bottomLeft;
+      case 'bottomRight':
+        return Alignment.bottomRight;
+      default:
+        return Alignment.center;
+    }
+  }
+
+  /// Создает DocumentModel из HTML строки
+  static DocumentModel fromHtml(String htmlString) {
+    // Это просто обертка для импортирования парсера HTML
+    // Полная реализация находится в html_document_parser.dart
+    return HtmlDocumentParser.parseHtml(htmlString);
+  }
+
+  /// Создает DocumentModel из обычного текста
+  static DocumentModel fromPlainText(String plainText) {
+    // Разбиваем текст на параграфы по символам новой строки
+    final paragraphs = plainText.split('\n\n');
+
+    // Создаем список элементов
+    final elements = <DocumentElement>[];
+
+    for (final paragraph in paragraphs) {
+      final trimmedText = paragraph.trim();
+      if (trimmedText.isNotEmpty) {
+        elements.add(TextElement(text: trimmedText));
+      }
+    }
+
+    // Если элементов нет, создаем пустой текстовый элемент
+    if (elements.isEmpty) {
+      elements.add(TextElement(text: plainText.trim()));
+    }
+
+    return DocumentModel(elements: elements);
+  }
+
+  /// Преобразует DocumentModel в HTML строку
+  String toHtml() {
+    return HtmlDocumentParser.convertToHtml(this);
   }
 }

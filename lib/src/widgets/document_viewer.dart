@@ -9,8 +9,9 @@ import '../theme/editor_theme.dart';
 /// Виджет для отображения документа без возможности редактирования
 class DocumentViewer extends StatelessWidget {
   final doc.DocumentModel document;
+  final bool enableLogging;
 
-  const DocumentViewer({super.key, required this.document});
+  const DocumentViewer({super.key, required this.document, this.enableLogging = false});
 
   @override
   Widget build(BuildContext context) {
@@ -20,9 +21,11 @@ class DocumentViewer extends StatelessWidget {
       padding: EdgeInsets.all(editorTheme.elementSpacing),
       decoration: BoxDecoration(
         color: editorTheme.backgroundColor,
-        border: Border.all(color: editorTheme.borderColor),
+        // Удаляем border, чтобы убрать рамку
+        // border: Border.all(color: editorTheme.borderColor),
         borderRadius: editorTheme.containerBorderRadius,
-        boxShadow: [editorTheme.containerShadow],
+        // Также убираем тень, чтобы улучшить вид без рамки
+        // boxShadow: [editorTheme.containerShadow],
       ),
       child: LayoutBuilder(
         builder: (context, constraints) => FloatColumn(children: _buildDocumentElements(context, constraints)),
@@ -39,12 +42,12 @@ class DocumentViewer extends StatelessWidget {
       final element = document.elements[i];
 
       if (element is doc.TextElement) {
-        print('DocumentViewer: Отображение TextElement $i: spans=${element.spans.length}');
+        if (enableLogging) print('DocumentViewer: Отображение TextElement $i: spans=${element.spans.length}');
 
         // Получаем выравнивание текста из первого спана
         final TextAlign textAlignment = element.spans.isNotEmpty ? element.spans[0].style.alignment : TextAlign.left;
 
-        print('DocumentViewer: Выравнивание текста: $textAlignment');
+        if (enableLogging) print('DocumentViewer: Выравнивание текста: $textAlignment');
 
         final List<InlineSpan> textSpans = [];
 
@@ -52,7 +55,7 @@ class DocumentViewer extends StatelessWidget {
         if (element.spans.length <= 1) {
           // Простой TextSpan для одного стиля
           final style = element.style;
-          print('DocumentViewer: - Одиночный span: текст="${element.text}", link=${style.link}');
+          if (enableLogging) print('DocumentViewer: - Одиночный span: текст="${element.text}", link=${style.link}');
 
           textSpans.add(
             TextSpan(
@@ -71,7 +74,7 @@ class DocumentViewer extends StatelessWidget {
           // Несколько TextSpan'ов для разных стилей
           for (int j = 0; j < element.spans.length; j++) {
             final span = element.spans[j];
-            print('DocumentViewer: - Span $j: текст="${span.text}", link=${span.style.link}');
+            if (enableLogging) print('DocumentViewer: - Span $j: текст="${span.text}", link=${span.style.link}');
 
             textSpans.add(
               TextSpan(
@@ -118,52 +121,56 @@ class DocumentViewer extends StatelessWidget {
 
         // Добавляем изображение как Floatable
         final percentSize = _calculateMaxWidthPercentage(element, float);
-        final pictureSize =
-            (float == FCFloat.none)
-                ? element.sizeType == 'original'
-                    ? element.width
-                    : constraints.maxWidth * percentSize
-                : double.maxFinite;
+        final pictureSize = constraints.maxWidth * percentSize;
+
+        // Создаем виджет в зависимости от типа float
+        Widget imageWidget = Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            // Изображение
+            CachedNetworkImage(
+              imageUrl: element.imageUrl,
+              width: pictureSize,
+              fit: BoxFit.fitWidth,
+              // height: element.height,
+              placeholder:
+                  (context, url) => Container(
+                    width: pictureSize,
+                    // height: element.height,
+                    color: editorTheme.placeholderColor,
+                    child: Center(child: CircularProgressIndicator(color: editorTheme.toolbarIconColor)),
+                  ),
+              errorWidget:
+                  (context, url, error) => Container(
+                    width: pictureSize,
+                    // height: element.height,
+                    color: editorTheme.placeholderColor,
+                    child: Icon(Icons.error, color: editorTheme.toolbarIconColor),
+                  ),
+            ),
+
+            // Подпись к изображению
+            if (element.caption.isNotEmpty)
+              Container(
+                width: element.width, // Устанавливаем ширину контейнера равной ширине изображения
+                padding: const EdgeInsets.only(top: 4.0),
+                child: Text(element.caption, style: editorTheme.captionTextStyle, textAlign: TextAlign.center),
+              ),
+          ],
+        );
+
+        // Если float == none, оборачиваем в Center для выравнивания по центру
+        if (float == FCFloat.none) {
+          imageWidget = Center(child: imageWidget);
+        }
+
         elements.add(
           Floatable(
             float: float,
             padding: padding,
             // Устанавливаем максимальную ширину для обтекания текстом в зависимости от типа размера изображения
             maxWidthPercentage: percentSize,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                // Изображение
-                CachedNetworkImage(
-                  imageUrl: element.imageUrl,
-                  width: pictureSize,
-                  fit: BoxFit.fitWidth,
-                  // height: element.height,
-                  placeholder:
-                      (context, url) => Container(
-                        width: pictureSize,
-                        // height: element.height,
-                        color: editorTheme.placeholderColor,
-                        child: Center(child: CircularProgressIndicator(color: editorTheme.toolbarIconColor)),
-                      ),
-                  errorWidget:
-                      (context, url, error) => Container(
-                        width: pictureSize,
-                        // height: element.height,
-                        color: editorTheme.placeholderColor,
-                        child: Icon(Icons.error, color: editorTheme.toolbarIconColor),
-                      ),
-                ),
-
-                // Подпись к изображению
-                if (element.caption.isNotEmpty)
-                  Container(
-                    width: element.width, // Устанавливаем ширину контейнера равной ширине изображения
-                    padding: const EdgeInsets.only(top: 4.0),
-                    child: Text(element.caption, style: editorTheme.captionTextStyle, textAlign: TextAlign.center),
-                  ),
-              ],
-            ),
+            child: imageWidget,
           ),
         );
 
@@ -184,7 +191,7 @@ class DocumentViewer extends StatelessWidget {
 
   // Обработчик тапа по ссылке
   void _handleLinkTap(String url) {
-    print('Открытие ссылки в просмотрщике: $url');
+    if (enableLogging) print('Открытие ссылки в просмотрщике: $url');
 
     // Преобразуем строку в Uri
     final Uri uri = Uri.parse(url);
@@ -193,11 +200,11 @@ class DocumentViewer extends StatelessWidget {
     launchUrl(uri, mode: LaunchMode.externalApplication)
         .then((success) {
           if (!success) {
-            print('Не удалось открыть ссылку: $url');
+            if (enableLogging) print('Не удалось открыть ссылку: $url');
           }
         })
         .catchError((error) {
-          print('Ошибка при открытии ссылки: $error');
+          if (enableLogging) print('Ошибка при открытии ссылки: $error');
         });
   }
 
@@ -246,26 +253,12 @@ class DocumentViewer extends StatelessWidget {
   // Рассчитывает maxWidthPercentage для Floatable в зависимости от типа размера изображения
   double _calculateMaxWidthPercentage(doc.ImageElement imageElement, FCFloat float) {
     // Если изображение выровнено по центру (нет обтекания), используем всю ширину
-    if (float == FCFloat.none) {
-      return 1.0;
-    }
+    // if (float == FCFloat.none) {
+    //   return 1.0;
+    // }
 
-    // В зависимости от типа размера выбираем значение maxWidthPercentage
-    switch (imageElement.sizeType) {
-      case 'original':
-        // Для оригинального размера используем фиксированное значение,
-        // так как у нас нет доступа к контексту для расчета процента
-        // При необходимости можно передать контекст в метод
-        return 0.4; // Значение по умолчанию для оригинального размера
-
-      case 'screen':
-        // Для процента от экрана используем точное значение, указанное пользователем
-        // Преобразуем процент (0-100) в долю (0.0-1.0)
-        return imageElement.sizePercent / 100;
-
-      default:
-        // По умолчанию используем 40% от ширины
-        return 0.4;
-    }
+    // Для процента от экрана используем точное значение, указанное пользователем
+    // Преобразуем процент (0-100) в долю (0.0-1.0)
+    return imageElement.sizePercent / 100;
   }
 }

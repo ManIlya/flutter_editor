@@ -322,9 +322,9 @@ class EditorThemeExtension extends ThemeExtension<EditorThemeExtension> {
     Color? floatIndicatorTextColor,
   }) {
     // Используем стили текста из темы, если они не предоставлены
-    final TextStyle? baseDefaultTextStyle = defaultTextStyle ?? theme.textTheme.bodyMedium;
-    final TextStyle? baseTitleTextStyle = titleTextStyle ?? theme.textTheme.headlineMedium;
-    final TextStyle? baseSubtitleTextStyle = subtitleTextStyle ?? theme.textTheme.titleLarge;
+    final TextStyle? baseDefaultTextStyle = defaultTextStyle;
+    final TextStyle? baseTitleTextStyle = titleTextStyle;
+    final TextStyle? baseSubtitleTextStyle = subtitleTextStyle;
     final TextStyle? baseCaptionTextStyle =
         captionTextStyle ?? theme.textTheme.bodySmall?.copyWith(fontStyle: FontStyle.italic);
     final TextStyle? basePlaceholderTextStyle =
