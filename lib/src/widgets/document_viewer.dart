@@ -41,11 +41,8 @@ class DocumentViewer extends StatelessWidget {
 
   /// Создает отступ для строки текста
   InlineSpan _createIndentSpan() {
-    return const TextSpan(
-      text: '\u200B', // Невидимый символ
-      style: TextStyle(
-        letterSpacing: 20.0, // Отступ в 20 пикселей
-      ),
+    return WidgetSpan(
+      child: SizedBox(width: 20.0), // Отступ в 20 пикселей
     );
   }
 
