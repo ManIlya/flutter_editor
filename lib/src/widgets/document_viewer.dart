@@ -51,22 +51,33 @@ class DocumentViewer extends StatelessWidget {
 
   /// Обрабатывает текст с учетом переносов строк и отступов
   List<InlineSpan> _processTextWithIndents(TextSpan span) {
-    final lines = (span.text ?? '').split('\n');
+    // Разбиваем текст на строки, сохраняя двойные переносы
+    final lines = (span.text ?? '').split('\n\n');
     final List<InlineSpan> result = [];
 
     for (int i = 0; i < lines.length; i++) {
-      // Добавляем перенос строки для всех строк кроме первой
+      // Добавляем двойной перенос строки для всех параграфов кроме первого
       if (i > 0) {
-        result.add(const TextSpan(text: '\n'));
+        result.add(const TextSpan(text: '\n\n'));
       }
 
-      // Добавляем отступ, если он включен
-      if (enableFirstLineIndent) {
-        result.add(_createIndentSpan());
-      }
+      // Разбиваем параграф на строки
+      final paragraphLines = lines[i].split('\n');
 
-      // Добавляем текст строки
-      result.add(TextSpan(text: lines[i], style: span.style, recognizer: span.recognizer));
+      for (int j = 0; j < paragraphLines.length; j++) {
+        // Добавляем одиночный перенос строки для всех строк кроме первой в параграфе
+        if (j > 0) {
+          result.add(const TextSpan(text: '\n\n')); // Добавляем двойной перенос для одиночных \n
+        }
+
+        // Добавляем отступ, если он включен
+        if (enableFirstLineIndent) {
+          result.add(_createIndentSpan());
+        }
+
+        // Добавляем текст строки
+        result.add(TextSpan(text: paragraphLines[j], style: span.style, recognizer: span.recognizer));
+      }
     }
 
     return result;
