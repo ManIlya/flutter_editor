@@ -10,8 +10,14 @@ import '../theme/editor_theme.dart';
 class DocumentViewer extends StatelessWidget {
   final doc.DocumentModel document;
   final bool enableLogging;
+  final bool enableFirstLineIndent; // Добавляем параметр для управления отступами
 
-  const DocumentViewer({super.key, required this.document, this.enableLogging = false});
+  const DocumentViewer({
+    super.key,
+    required this.document,
+    this.enableLogging = false,
+    this.enableFirstLineIndent = true, // По умолчанию отступы включены
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -31,6 +37,39 @@ class DocumentViewer extends StatelessWidget {
         builder: (context, constraints) => FloatColumn(children: _buildDocumentElements(context, constraints)),
       ),
     );
+  }
+
+  /// Создает отступ для строки текста
+  InlineSpan _createIndentSpan() {
+    return const TextSpan(
+      text: '\u200B', // Невидимый символ
+      style: TextStyle(
+        letterSpacing: 20.0, // Отступ в 20 пикселей
+      ),
+    );
+  }
+
+  /// Обрабатывает текст с учетом переносов строк и отступов
+  List<InlineSpan> _processTextWithIndents(TextSpan span) {
+    final lines = (span.text ?? '').split('\n');
+    final List<InlineSpan> result = [];
+
+    for (int i = 0; i < lines.length; i++) {
+      // Добавляем перенос строки для всех строк кроме первой
+      if (i > 0) {
+        result.add(const TextSpan(text: '\n'));
+      }
+
+      // Добавляем отступ, если он включен
+      if (enableFirstLineIndent) {
+        result.add(_createIndentSpan());
+      }
+
+      // Добавляем текст строки
+      result.add(TextSpan(text: lines[i], style: span.style, recognizer: span.recognizer));
+    }
+
+    return result;
   }
 
   /// Создает элементы документа для отображения
@@ -95,8 +134,14 @@ class DocumentViewer extends StatelessWidget {
         // Добавляем Text.rich с примененным выравниванием
         elements.add(
           Text.rich(
-            TextSpan(children: textSpans),
-            textAlign: textAlignment, // Применяем выравнивание
+            TextSpan(
+              children:
+                  textSpans.expand((span) {
+                    if (span is! TextSpan) return [span];
+                    return _processTextWithIndents(span);
+                  }).toList(),
+            ),
+            textAlign: textAlignment,
           ),
         );
       } else if (element is doc.ImageElement) {
