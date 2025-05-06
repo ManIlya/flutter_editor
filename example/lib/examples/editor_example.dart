@@ -222,7 +222,7 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
                         _document = newDoc;
                       });
                     },
-                    enableLogging: false,
+                    enableLogging: true,
                     // Добавляем пользовательские иконки тулбара
                     customToolbarItems: _buildCustomToolbarItems(),
                     // Пример функции для преобразования файла в URL

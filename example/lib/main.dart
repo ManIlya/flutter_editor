@@ -328,6 +328,8 @@ class _EditorPageState extends State<EditorPage> {
                     await Future.delayed(const Duration(milliseconds: 800));
                     return 'https://example.com/images/$fileName';
                   },
+
+              enableLogging: true,
                 )
                 : SingleChildScrollView(
                   child: Padding(padding: const EdgeInsets.all(16.0), child: DocumentViewer(document: _document)),

@@ -374,6 +374,13 @@ class DocumentModel {
     elements.add(element);
   }
 
+  /// Вставляет элемент в указанную позицию
+  void insertElement(int index, DocumentElement element) {
+    if (index >= 0 && index <= elements.length) {
+      elements.insert(index, element);
+    }
+  }
+
   void removeElement(int index) {
     if (index >= 0 && index < elements.length) {
       elements.removeAt(index);

@@ -4,6 +4,224 @@ import '../models/document_model.dart' as doc;
 import 'package:flutter/gestures.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/editor_theme.dart';
+import 'package:flutter/services.dart';
+
+/// Класс для управления ограничениями текстового редактора
+class TextEditorLimits {
+  /// Максимальное количество символов в одном блоке текста
+  final int maxCharactersPerBlock;
+
+  /// Запас символов, который нужно оставить для возможности дописать текст
+  final int characterReserve;
+
+  /// Максимальное количество символов для ввода
+  int get effectiveLimit => maxCharactersPerBlock - characterReserve;
+
+  /// Порог заполнения для новых блоков (в процентах от максимального размера)
+  final int newBlockFillPercentage;
+
+  /// Максимальное количество символов для новых создаваемых блоков
+  int get newBlockLimit => (maxCharactersPerBlock * newBlockFillPercentage ~/ 100);
+
+  const TextEditorLimits({
+    this.maxCharactersPerBlock = 10000, // По умолчанию 5000 символов
+    this.characterReserve = 200, // Запас в 200 символов
+    this.newBlockFillPercentage = 90, // Заполнение новых блоков до 90%
+  });
+}
+
+/// Форматтер для ограничения длины текста с поддержкой вызова колбэка при переполнении
+class LimitedLengthTextInputFormatter extends TextInputFormatter {
+  final int maxLength;
+  final Function(String)? onOverflow;
+
+  // Для отслеживания последнего обработанного текста и предотвращения дублирования
+  String? _lastProcessedText;
+  String? _lastOverflowText;
+
+  LimitedLengthTextInputFormatter(this.maxLength, {this.onOverflow});
+
+  // Проверяет, был ли этот текст уже обработан
+  bool _wasProcessed(String text, String overflowText) {
+    return _lastProcessedText == text && _lastOverflowText == overflowText;
+  }
+
+  @override
+  TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
+    // Проверяем на вставку большого объёма текста (признак - резкое увеличение длины)
+    if (newValue.text.length > oldValue.text.length + 10) {
+      // Возможная вставка текста
+      final cursorPosition = oldValue.selection.baseOffset;
+
+      // Определяем вставленный текст
+      String textBefore = cursorPosition > 0 ? oldValue.text.substring(0, cursorPosition) : '';
+      String textAfter = cursorPosition < oldValue.text.length ? oldValue.text.substring(cursorPosition) : '';
+
+      // Находим вставленный текст, вычитая исходный текст
+      String pastedText = newValue.text;
+      if (textBefore.isNotEmpty && pastedText.startsWith(textBefore)) {
+        pastedText = pastedText.substring(textBefore.length);
+      }
+      if (textAfter.isNotEmpty && pastedText.endsWith(textAfter)) {
+        pastedText = pastedText.substring(0, pastedText.length - textAfter.length);
+      }
+
+      // Полный текст после вставки
+      final fullText = textBefore + pastedText + textAfter;
+
+      // Проверка на наличие символов переноса строки
+      int newlineIndex = pastedText.indexOf('\n');
+
+      // Если в тексте есть символ переноса строки
+      if (newlineIndex >= 0) {
+        // Берем только текст до первого переноса строки
+        final firstPart = pastedText.substring(0, newlineIndex);
+        String overflowPart = pastedText.substring(newlineIndex + 1);
+
+        // Проверяем, помещается ли первая часть в лимит
+        if (textBefore.length + firstPart.length > maxLength) {
+          // Если первая часть не помещается, обрезаем ее
+          final availableSpace = maxLength - textBefore.length;
+          final truncatedFirstPart = firstPart.substring(0, Math.min(availableSpace, firstPart.length));
+          overflowPart = firstPart.substring(truncatedFirstPart.length) + '\n' + overflowPart;
+
+          // Создаем новый текст
+          final String newText = textBefore + truncatedFirstPart;
+
+          // Проверяем на дублирование
+          if (!_wasProcessed(newText, overflowPart)) {
+            _lastProcessedText = newText;
+            _lastOverflowText = overflowPart;
+            // Вызываем колбэк для обработки переполнения
+            if (overflowPart.isNotEmpty && onOverflow != null) {
+              onOverflow!(overflowPart);
+            }
+          }
+
+          return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newText.length));
+        } else {
+          // Если первая часть помещается
+          final String newText = textBefore + firstPart;
+
+          // Проверяем на дублирование
+          if (!_wasProcessed(newText, overflowPart)) {
+            _lastProcessedText = newText;
+            _lastOverflowText = overflowPart;
+            // Вызываем колбэк для обработки переполнения
+            if (overflowPart.isNotEmpty && onOverflow != null) {
+              onOverflow!(overflowPart);
+            }
+          }
+
+          return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newText.length));
+        }
+      }
+
+      // Если весь текст вместе с вставкой превышает лимит
+      if (fullText.length > maxLength) {
+        // Сколько текста можно добавить до достижения лимита
+        final availableSpace = maxLength - textBefore.length - textAfter.length;
+
+        // Проверяем, занимает ли вставляемый текст более 90% лимита
+        final threshold = (maxLength * 0.9).toInt();
+
+        if (pastedText.length >= threshold) {
+          // Разбиваем вставляемый текст на две части по 90% лимита
+          final int splitPoint = (maxLength * 0.9).toInt();
+          final String firstPart = pastedText.substring(0, Math.min(splitPoint, pastedText.length));
+          String overflowPart = "";
+
+          if (pastedText.length > splitPoint) {
+            overflowPart = pastedText.substring(splitPoint);
+          }
+
+          // Собираем новый текст только с первой частью вставки (без textAfter)
+          final String newText = textBefore + firstPart;
+
+          // Проверяем на дублирование
+          final String combinedOverflow = overflowPart + textAfter;
+          if (!_wasProcessed(newText, combinedOverflow)) {
+            _lastProcessedText = newText;
+            _lastOverflowText = combinedOverflow;
+            // Вызываем колбэк для обработки переполнения (включая оставшуюся часть и textAfter)
+            if (combinedOverflow.isNotEmpty && onOverflow != null) {
+              onOverflow!(combinedOverflow);
+            }
+          }
+
+          // Возвращаем отформатированное значение
+          return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newText.length));
+        } else if (availableSpace > 0) {
+          // Если текст не занимает 90% лимита, но всё равно не помещается целиком
+          final String firstPart = pastedText.substring(0, Math.min(availableSpace, pastedText.length));
+          String overflowPart = "";
+
+          if (pastedText.length > availableSpace) {
+            overflowPart = pastedText.substring(availableSpace);
+          }
+
+          // Собираем новый текст с первой частью вставки
+          final String newText = textBefore + firstPart + textAfter;
+
+          // Проверяем на дублирование
+          if (!_wasProcessed(newText, overflowPart)) {
+            _lastProcessedText = newText;
+            _lastOverflowText = overflowPart;
+            // Вызываем колбэк для обработки переполнения
+            if (overflowPart.isNotEmpty && onOverflow != null) {
+              onOverflow!(overflowPart);
+            }
+          }
+
+          // Возвращаем отформатированное значение
+          return TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(offset: textBefore.length + firstPart.length),
+          );
+        } else {
+          // Если совсем нет места, обрезаем весь текст до лимита
+          final String newText = fullText.substring(0, maxLength);
+          final String overflowText = fullText.substring(maxLength);
+
+          // Проверяем на дублирование
+          if (!_wasProcessed(newText, overflowText)) {
+            _lastProcessedText = newText;
+            _lastOverflowText = overflowText;
+            if (overflowText.isNotEmpty && onOverflow != null) {
+              onOverflow!(overflowText);
+            }
+          }
+
+          return TextEditingValue(
+            text: newText,
+            selection: TextSelection.collapsed(offset: Math.min(maxLength, cursorPosition)),
+          );
+        }
+      }
+    }
+
+    // Обычная обработка ограничения длины текста
+    if (newValue.text.length > maxLength) {
+      // Если просто превышен лимит (например, при обычном вводе)
+      String limitedText = newValue.text.substring(0, maxLength);
+      String overflowText = newValue.text.substring(maxLength);
+
+      // Колбэк для переполнения
+      if (overflowText.isNotEmpty && onOverflow != null) {
+        onOverflow!(overflowText);
+      }
+
+      // Возвращаем обрезанный текст
+      return TextEditingValue(
+        text: limitedText,
+        selection: TextSelection.collapsed(offset: Math.min(maxLength, newValue.selection.end)),
+      );
+    }
+
+    // Если текст не превышает лимит, возвращаем его как есть
+    return newValue;
+  }
+}
 
 /// Виджет для редактирования текста с поддержкой различных стилей
 class TextEditor extends StatefulWidget {
@@ -17,8 +235,17 @@ class TextEditor extends StatefulWidget {
   final VoidCallback onTap;
   final VoidCallback? onDelete;
 
+  /// Функция вызываемая при переполнении лимита символов
+  final Function(String)? onOverflow;
+
+  /// Функция для создания новых блоков текста при разбиении
+  final Function(List<TextBlockData>)? onCreateNewBlocks;
+
   /// Включает подробное логирование для отладки
   final bool enableLogging;
+
+  /// Ограничения для текстового редактора
+  final TextEditorLimits limits;
 
   const TextEditor({
     super.key,
@@ -32,10 +259,21 @@ class TextEditor extends StatefulWidget {
     required this.onTap,
     this.onDelete,
     this.enableLogging = false,
+    this.limits = const TextEditorLimits(),
+    this.onOverflow,
+    this.onCreateNewBlocks,
   });
 
   @override
   State<TextEditor> createState() => _TextEditorState();
+}
+
+/// Класс для хранения данных блока текста при разбиении
+class TextBlockData {
+  final String text;
+  final List<doc.TextSpanDocument> spans;
+
+  TextBlockData({required this.text, required this.spans});
 }
 
 class _TextEditorState extends State<TextEditor> {
@@ -44,6 +282,9 @@ class _TextEditorState extends State<TextEditor> {
 
   // Последнее известное выделение
   TextSelection? _lastKnownSelection;
+
+  // Для отслеживания уже обработанного текста
+  String? _lastProcessedText;
 
   // Вспомогательный метод для логирования
   void _log(String message) {
@@ -69,13 +310,342 @@ class _TextEditorState extends State<TextEditor> {
     // Запускаем таймер для отслеживания изменений выделения
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _startSelectionListener();
+
+      // Проверяем необходимость разбиения текста при инициализации
+      _checkForInitialTextSegmentation();
     });
+  }
+
+  // Проверяет необходимость разбиения текста при инициализации
+  void _checkForInitialTextSegmentation() {
+    // Избегаем повторной обработки одного и того же текста
+    if (_lastProcessedText == widget.text) {
+      _log(
+        'Этот текст уже был обработан ранее, пропускаем: "${widget.text.substring(0, Math.min(20, widget.text.length))}..."',
+      );
+      return;
+    }
+
+    // Проверяем, нужно ли разбивать текст
+    if (!_isTextOverLimit(widget.text) && !_isSplittingNeeded(widget.text)) {
+      return; // Если нет, то выходим
+    }
+
+    _log('Обнаружен большой объем текста при инициализации, проверяем на разбиение');
+
+    if (widget.enableLogging) {
+      final previewLength = Math.min(50, widget.text.length);
+      _log('Текущий текст: "${widget.text.substring(0, previewLength)}..."');
+      _log(
+        'Длина текста: ${widget.text.length}, лимит: ${widget.limits.maxCharactersPerBlock}, эффективный лимит: ${widget.limits.effectiveLimit}',
+      );
+    }
+
+    // Определяем, требуется ли разбиение текста
+    if (widget.text.length > widget.limits.effectiveLimit) {
+      // Вычисляем, какую часть текста сохранить в текущем редакторе
+      final String trimmedText = widget.text.substring(0, Math.min(widget.limits.effectiveLimit, widget.text.length));
+      final String overflowText = widget.text.substring(Math.min(widget.limits.effectiveLimit, widget.text.length));
+
+      _log('Обнаружено переполнение при инициализации виджета, переполнение: ${overflowText.length} символов');
+
+      // Запоминаем обработанный текст
+      _lastProcessedText = widget.text;
+
+      // Используем микротаск для предотвращения вызова обновлений в процессе инициализации
+      Future.microtask(() {
+        if (mounted) {
+          // Обновляем текст в контроллере
+          _controller.text = trimmedText;
+
+          // Уведомляем родительский виджет
+          widget.onTextChanged(trimmedText);
+
+          // Ищем колбэк для разбиения текста
+          if (widget.onCreateNewBlocks != null) {
+            _log('Создаем новые блоки из переполнения при инициализации');
+            _createNewBlocksFromOverflow(overflowText);
+          } else if (widget.onOverflow != null) {
+            _log('Используем обработчик переполнения при инициализации');
+            widget.onOverflow!(overflowText);
+          }
+        }
+      });
+    }
+  }
+
+  // Проверяет, превышает ли текст заданный лимит
+  bool _isTextOverLimit(String text) {
+    return text.length > widget.limits.maxCharactersPerBlock;
+  }
+
+  // Проверяет, достигнут ли порог для разбиения текста
+  bool _isSplittingNeeded(String text) {
+    // Если текст превышает эффективный лимит или его длина составляет более 90% от максимального размера
+    return text.length > widget.limits.effectiveLimit ||
+        text.length > (widget.limits.maxCharactersPerBlock * 0.9).toInt();
+  }
+
+  // Обрабатывает переполнение при вставке или вводе текста
+  void _handleOverflow(String overflowText) {
+    if (overflowText.isEmpty) {
+      _log('Обработчик переполнения вызван с пустым текстом, пропускаем');
+      return;
+    }
+
+    _log('════════════════════════════════════════════');
+    _log('🔄 ОБРАБОТКА ПЕРЕПОЛНЕНИЯ:');
+    _log('Размер переполнения: ${overflowText.length} символов');
+    if (widget.enableLogging) {
+      final previewLength = Math.min(100, overflowText.length);
+      _log(
+        'Начало переполнения: "${overflowText.substring(0, previewLength)}${previewLength < overflowText.length ? "..." : ""}"',
+      );
+    }
+
+    // Проверяем, можно ли создать новые блоки
+    if (widget.onCreateNewBlocks == null) {
+      _log('Колбэк onCreateNewBlocks не предоставлен, обрабатываем через onOverflow');
+
+      // Если переполнение меньше минимального размера для создания блока, игнорируем
+      if (overflowText.length < 10) {
+        _log('Слишком маленький объем переполнения (${overflowText.length}), игнорируем');
+        _log('════════════════════════════════════════════');
+        return;
+      }
+
+      // Пробуем обработать через onOverflow, если он предоставлен
+      if (widget.onOverflow != null) {
+        // Используем микротаск, чтобы убедиться, что вызов колбэка произойдет после построения виджета
+        Future.microtask(() {
+          if (mounted) {
+            widget.onOverflow!(overflowText);
+            _log('Отправлено ${overflowText.length} символов через колбэк onOverflow');
+          }
+        });
+      } else {
+        _log('Колбэк onOverflow также не предоставлен, переполнение текста будет обрезано');
+        // Показываем предупреждение пользователю
+        Future.microtask(() {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Текст переполнен и будет обрезан, т.к. не настроена функция разбиения'),
+                backgroundColor: Colors.orange,
+                duration: const Duration(seconds: 3),
+              ),
+            );
+          }
+        });
+      }
+      _log('════════════════════════════════════════════');
+      return;
+    }
+
+    // Если переполнение меньше минимального размера для создания блока, игнорируем
+    if (overflowText.length < 10) {
+      _log('Слишком маленький объем переполнения (${overflowText.length}), игнорируем');
+      _log('════════════════════════════════════════════');
+      return;
+    }
+
+    _log('Начинаем разбиение текста на блоки...');
+
+    // Используем микротаск для создания новых блоков, чтобы избежать проблем при построении виджета
+    Future.microtask(() {
+      if (mounted) {
+        _createNewBlocksFromOverflow(overflowText);
+        _log('Функция создания блоков вызвана для переполнения размером ${overflowText.length} символов');
+      }
+    });
+
+    _log('════════════════════════════════════════════');
+  }
+
+  // Создает новые блоки из переполненного текста
+  void _createNewBlocksFromOverflow(String overflowText) {
+    if (overflowText.isEmpty) {
+      _log('Переполнение пустое, нет необходимости создавать новые блоки');
+      return;
+    }
+
+    if (widget.onCreateNewBlocks == null) {
+      _log('Обработчик onCreateNewBlocks не предоставлен, невозможно создать новые блоки');
+
+      // Пробуем использовать обработчик onOverflow
+      if (widget.onOverflow != null) {
+        widget.onOverflow!(overflowText);
+        _log('Переполнение отправлено через обработчик onOverflow');
+      }
+      return;
+    }
+
+    _log('Начинаем создание новых блоков, размер переполнения: ${overflowText.length} символов');
+
+    // Получаем стиль текста в позиции курсора или используем стиль виджета
+    final doc.TextStyleAttributes currentStyle =
+        _controller.getStyleAt(_controller.selection.baseOffset) ?? widget.style;
+
+    // Для начала разбиваем текст по переносам строки
+    final List<String> paragraphs = overflowText.split('\n');
+    _log('Текст разбит по символам переноса строки на ${paragraphs.length} параграфов');
+
+    // Список блоков данных для создания новых текстовых блоков
+    final List<TextBlockData> blockDataList = [];
+
+    // Текущий блок для объединения нескольких маленьких параграфов
+    String currentBlock = '';
+
+    for (int i = 0; i < paragraphs.length; i++) {
+      final paragraph = paragraphs[i];
+
+      // Проверяем, превысит ли текущий блок лимит при добавлении нового параграфа
+      if (currentBlock.isNotEmpty &&
+          currentBlock.length + (currentBlock.isEmpty ? 0 : 1) + paragraph.length > widget.limits.newBlockLimit) {
+        // Если да, добавляем текущий блок и начинаем новый
+        blockDataList.add(
+          TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: currentStyle)]),
+        );
+        _log('Создан блок длиной ${currentBlock.length} (достиг лимита при добавлении параграфа)');
+        currentBlock = paragraph;
+      } else if (paragraph.length > widget.limits.newBlockLimit) {
+        // Если сам параграф больше лимита, разбиваем его на части
+
+        // Сначала добавляем накопленный текущий блок, если он есть
+        if (currentBlock.isNotEmpty) {
+          blockDataList.add(
+            TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: currentStyle)]),
+          );
+          _log('Создан блок длиной ${currentBlock.length} (перед большим параграфом)');
+          currentBlock = '';
+        }
+
+        // Разбиваем большой параграф на части
+        _splitLongParagraph(paragraph, currentStyle, blockDataList);
+      } else {
+        // Если параграф помещается в текущий блок, добавляем его
+        if (currentBlock.isNotEmpty) {
+          currentBlock += '\n' + paragraph;
+        } else {
+          currentBlock = paragraph;
+        }
+      }
+    }
+
+    // Добавляем последний блок, если он не пустой
+    if (currentBlock.isNotEmpty) {
+      blockDataList.add(
+        TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: currentStyle)]),
+      );
+      _log('Создан последний блок длиной ${currentBlock.length}');
+    }
+
+    _log('Итоговое количество блоков после разбиения: ${blockDataList.length}');
+
+    // Вызываем колбэк для создания новых блоков
+    if (blockDataList.isNotEmpty) {
+      _log('Создаем ${blockDataList.length} новых блоков текста');
+
+      // Гарантируем, что вызов колбэка происходит в следующем цикле событий
+      Future.microtask(() {
+        if (mounted && widget.onCreateNewBlocks != null) {
+          widget.onCreateNewBlocks!(blockDataList);
+
+          // Выводим детальный лог о созданных блоках
+          if (widget.enableLogging) {
+            for (int i = 0; i < blockDataList.length; i++) {
+              final block = blockDataList[i];
+              final previewText = block.text.length > 30 ? block.text.substring(0, 30) + '...' : block.text;
+              _log('Блок #$i: длина ${block.text.length}, текст: "$previewText"');
+            }
+          }
+        }
+      });
+    }
+  }
+
+  // Вспомогательный метод для разбиения длинного параграфа на части
+  void _splitLongParagraph(String paragraph, doc.TextStyleAttributes style, List<TextBlockData> blocksList) {
+    int startPos = 0;
+
+    while (startPos < paragraph.length) {
+      int endPos = startPos + widget.limits.newBlockLimit;
+      if (endPos > paragraph.length) endPos = paragraph.length;
+
+      // Ищем подходящее место для разрыва, предпочтительно на границе предложения
+      int breakPoint = -1;
+
+      // Пытаемся найти конец предложения (. ! ?) примерно после половины блока
+      for (int i = startPos + widget.limits.newBlockLimit ~/ 2; i < endPos; i++) {
+        if (i < paragraph.length && (paragraph[i] == '.' || paragraph[i] == '!' || paragraph[i] == '?')) {
+          // Нашли конец предложения, добавляем +1 чтобы включить знак препинания
+          breakPoint = i + 1;
+          // Если за знаком препинания есть пробел, включаем и его
+          if (breakPoint < paragraph.length && paragraph[breakPoint] == ' ') {
+            breakPoint++;
+          }
+          break;
+        }
+      }
+
+      // Если не нашли конец предложения, ищем последний пробел
+      if (breakPoint == -1) {
+        for (int i = endPos - 1; i > startPos + widget.limits.newBlockLimit ~/ 2; i--) {
+          if (i < paragraph.length && paragraph[i] == ' ') {
+            breakPoint = i + 1; // Включаем пробел в первую часть
+            break;
+          }
+        }
+      }
+
+      // Если и пробела не нашли, просто разбиваем по лимиту
+      if (breakPoint == -1 || breakPoint <= startPos) {
+        breakPoint = endPos;
+      }
+
+      // Извлекаем часть параграфа
+      String part = paragraph.substring(startPos, breakPoint);
+
+      // Добавляем часть как отдельный блок
+      blocksList.add(TextBlockData(text: part, spans: [doc.TextSpanDocument(text: part, style: style)]));
+
+      _log('Разбит большой параграф: добавлена часть длиной ${part.length} символов');
+
+      // Переходим к следующей части
+      startPos = breakPoint;
+    }
   }
 
   void _onControllerChanged() {
     // Проверяем, изменился ли текст
     if (widget.text != _controller.text) {
       _log('Текст изменился с "${widget.text}" на "${_controller.text}"');
+
+      // Проверяем, не превышен ли максимальный лимит символов
+      final String newText = _controller.text;
+      if (_isTextOverLimit(newText)) {
+        _log('Превышен лимит символов (${widget.limits.maxCharactersPerBlock})');
+
+        // Если превышен, обрезаем текст до допустимого лимита
+        final String trimmedText = newText.substring(0, widget.limits.maxCharactersPerBlock);
+        final String overflowText = newText.substring(widget.limits.maxCharactersPerBlock);
+
+        _controller.text = trimmedText;
+
+        // Обрабатываем переполнение текста
+        if (overflowText.isNotEmpty) {
+          _handleOverflow(overflowText);
+        }
+
+        // Показываем сообщение пользователю о превышении лимита
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Превышен лимит символов (${widget.limits.maxCharactersPerBlock})'),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 2),
+          ),
+        );
+      }
 
       // Отложенное уведомление об изменении текста
       Future.microtask(() {
@@ -164,7 +734,58 @@ class _TextEditorState extends State<TextEditor> {
 
     // Обновляем текст, если он изменился извне
     if (oldWidget.text != widget.text && _controller.text != widget.text) {
-      _controller.text = widget.text;
+      // Проверяем, не обрабатывался ли этот текст раньше
+      if (_lastProcessedText == widget.text) {
+        _log(
+          'Этот текст уже был обработан ранее, пропускаем обновление: "${widget.text.substring(0, Math.min(20, widget.text.length))}..."',
+        );
+        return;
+      }
+
+      // Проверяем необходимость разбиения текста при обновлении
+      if (_isTextOverLimit(widget.text) || _isSplittingNeeded(widget.text)) {
+        _log('Обнаружен большой объем текста при обновлении виджета: ${widget.text.length} символов');
+
+        // Убедимся, что мы не выходим за пределы текста
+        final effectiveLimit = Math.min(widget.limits.effectiveLimit, widget.text.length);
+
+        // Разделяем текст на части: то, что поместится в редактор и переполнение
+        final String trimmedText = widget.text.substring(0, effectiveLimit);
+
+        // Проверяем, есть ли переполнение
+        if (effectiveLimit < widget.text.length) {
+          final String overflowText = widget.text.substring(effectiveLimit);
+          _log('Обнаружено переполнение при обновлении виджета, размер: ${overflowText.length} символов');
+
+          // Обновляем текст в контроллере
+          _controller.text = trimmedText;
+
+          // Запоминаем обработанный текст
+          _lastProcessedText = widget.text;
+
+          // Вызываем обработчик переполнения в следующем цикле событий
+          Future.microtask(() {
+            if (mounted) {
+              // В зависимости от доступных колбэков, выбираем способ обработки переполнения
+              if (widget.onCreateNewBlocks != null) {
+                _log('Используем обработчик создания новых блоков');
+                _createNewBlocksFromOverflow(overflowText);
+              } else if (widget.onOverflow != null) {
+                _log('Используем обработчик переполнения');
+                widget.onOverflow!(overflowText);
+              } else {
+                _log('Нет обработчиков для переполнения, текст будет обрезан');
+              }
+            }
+          });
+        } else {
+          // Если нет переполнения, просто обновляем текст
+          _controller.text = widget.text;
+        }
+      } else {
+        // Стандартное обновление текста, если не требуется разбиение
+        _controller.text = widget.text;
+      }
     }
 
     // Обновляем стили, если они изменились
@@ -187,210 +808,24 @@ class _TextEditorState extends State<TextEditor> {
     }
   }
 
-  TextStyle _getFlutterTextStyle(doc.TextStyleAttributes style) {
-    return TextStyle(
-      fontWeight: style.bold ? FontWeight.bold : FontWeight.normal,
-      fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
-      decoration:
-          style.link != null
-              ? TextDecoration.underline
-              : (style.underline ? TextDecoration.underline : TextDecoration.none),
-      decorationColor: style.link != null ? Colors.blue : null,
-      decorationThickness: style.link != null ? 2.0 : 1.0,
-      color: style.link != null ? Colors.blue : style.color,
-      fontSize: style.fontSize,
-    );
-  }
+  @override
+  Widget build(BuildContext context) {
+    // Дополнительная проверка на необходимость разбиения текста во время построения виджета
+    // Это гарантирует, что если по какой-то причине разбиение не произошло при инициализации,
+    // оно будет выполнено при первом построении виджета
+    if (widget.text.length > widget.limits.effectiveLimit &&
+        _controller.text.length == widget.text.length &&
+        _lastProcessedText != widget.text) {
+      _log('⚠️ Обнаружена необходимость разбиения текста во время построения виджета');
 
-  // Получает иконку для текущего выравнивания
-  IconData _getAlignmentIcon(TextAlign alignment) {
-    switch (alignment) {
-      case TextAlign.left:
-        return Icons.format_align_left;
-      case TextAlign.center:
-        return Icons.format_align_center;
-      case TextAlign.right:
-        return Icons.format_align_right;
-      case TextAlign.justify:
-        return Icons.format_align_justify;
-      default:
-        return Icons.format_align_left;
-    }
-  }
-
-  // Отображает диалог для добавления или редактирования ссылки
-  Future<void> _showLinkDialog(String? currentLink) async {
-    final TextEditingController linkController = TextEditingController(text: currentLink ?? '');
-    String? newLink;
-    final editorTheme = EditorThemeExtension.of(context);
-
-    // Определяем границы ссылки или выделения
-    int startLink = _controller.selection.start;
-    int endLink = _controller.selection.end;
-    bool hasSelection = startLink != endLink;
-    bool isExistingLink = currentLink != null;
-
-    // Если нет выделения, но есть ссылка, находим её границы
-    if (!hasSelection && isExistingLink) {
-      // Ищем границы ссылки, на которой стоит курсор
-      int currentPos = 0;
-      for (final span in _controller.getSpans()) {
-        final spanStart = currentPos;
-        final spanEnd = currentPos + span.text.length;
-
-        if (span.style.link == currentLink &&
-            spanStart <= _controller.selection.start &&
-            spanEnd >= _controller.selection.start) {
-          startLink = spanStart;
-          endLink = spanEnd;
-          hasSelection = true;
-          break;
-        }
-
-        currentPos = spanEnd;
-      }
-    }
-
-    // Если нет выделения и нет ссылки, показываем сообщение
-    if (!hasSelection && !isExistingLink) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Выделите текст для создания ссылки'),
-          duration: Duration(seconds: 2),
-          backgroundColor: editorTheme.toolbarColor,
-        ),
-      );
-      return;
-    }
-
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text(
-            isExistingLink ? 'Изменить ссылку' : 'Добавить ссылку',
-            style: TextStyle(color: editorTheme.defaultTextStyle.color),
-          ),
-          backgroundColor: editorTheme.backgroundColor,
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(editorTheme.borderRadius),
-            side: BorderSide(color: editorTheme.borderColor),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: linkController,
-                autofocus: true,
-                decoration: InputDecoration(
-                  hintText: 'https://example.com',
-                  labelText: 'URL',
-                  enabledBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: editorTheme.borderColor),
-                    borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderSide: BorderSide(color: editorTheme.linkColor),
-                    borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2),
-                  ),
-                ),
-                keyboardType: TextInputType.url,
-                textInputAction: TextInputAction.done,
-                style: TextStyle(color: editorTheme.defaultTextStyle.color),
-                onSubmitted: (value) {
-                  newLink = value.trim();
-                  Navigator.of(context).pop();
-                },
-              ),
-              if (isExistingLink) ...[
-                const SizedBox(height: 8),
-                OutlinedButton.icon(
-                  icon: Icon(Icons.open_in_new, size: 16, color: editorTheme.linkColor),
-                  label: Text('Открыть в браузере', style: TextStyle(color: editorTheme.linkColor)),
-                  style: OutlinedButton.styleFrom(
-                    side: BorderSide(color: editorTheme.linkColor),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2)),
-                  ),
-                  onPressed: () async {
-                    final url = currentLink;
-                    if (await canLaunch(url!)) {
-                      await launch(url);
-                    } else {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text('Не удалось открыть $url'), backgroundColor: editorTheme.toolbarColor),
-                      );
-                    }
-                  },
-                ),
-              ],
-            ],
-          ),
-          actions: [
-            if (isExistingLink)
-              TextButton(
-                style: TextButton.styleFrom(foregroundColor: Colors.red),
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  newLink = ''; // Специальный флаг для удаления ссылки
-                },
-                child: const Text('Удалить'),
-              ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: editorTheme.toolbarIconColor),
-              onPressed: () {
-                Navigator.of(context).pop();
-              },
-              child: const Text('Отмена'),
-            ),
-            TextButton(
-              style: TextButton.styleFrom(foregroundColor: editorTheme.linkColor),
-              onPressed: () {
-                newLink = linkController.text.trim();
-                Navigator.of(context).pop();
-              },
-              child: const Text('Сохранить'),
-            ),
-          ],
-        );
-      },
-    );
-
-    // Применяем ссылку, только если она была изменена
-    if (newLink != null) {
-      // Используем микротаск для предотвращения изменений во время рендеринга
+      // Откладываем разбиение до следующего цикла событий
       Future.microtask(() {
         if (mounted) {
-          // Сохраняем текущее выделение
-          final currentSelection = _controller.selection;
-
-          // Создаем временное выделение, охватывающее всю ссылку
-          final fullLinkSelection = TextSelection(baseOffset: startLink, extentOffset: endLink);
-
-          // Устанавливаем выделение на всю ссылку
-          _controller.selection = fullLinkSelection;
-
-          if (newLink!.isEmpty) {
-            // Удаляем ссылку
-            _applyStyle((s) => s.copyWith(removeLink: true));
-          } else {
-            // Применяем или обновляем ссылку
-            _applyStyle((s) => s.copyWith(link: newLink, underline: true));
-          }
-
-          // Восстанавливаем исходное выделение
-          Future.microtask(() {
-            if (mounted && _focusNode.hasFocus) {
-              _controller.selection = currentSelection;
-              widget.onSelectionChanged(_controller.selection);
-            }
-          });
+          _checkForInitialTextSegmentation();
         }
       });
     }
-  }
 
-  @override
-  Widget build(BuildContext context) {
     return GestureDetector(
       onTap: () {
         // Используем микротаск для обработки нажатия
@@ -420,61 +855,89 @@ class _TextEditorState extends State<TextEditor> {
             ? _controller.spans![0].style.alignment
             : widget.style.alignment;
 
-    return TextField(
-      controller: _controller,
-      focusNode: _focusNode,
-      maxLines: null,
-      minLines: 1,
-      keyboardType: TextInputType.multiline,
-      textCapitalization: TextCapitalization.sentences,
-      style: TextStyle(fontSize: widget.style.fontSize),
-      textAlign: textAlignment, // Применяем выравнивание
-      decoration: InputDecoration(
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        errorBorder: InputBorder.none,
-        focusedErrorBorder: InputBorder.none,
-        disabledBorder: InputBorder.none,
-        isDense: true,
-        contentPadding: EdgeInsets.zero,
-      ),
-      onTap: () {
-        // Используем микротаск для обработки нажатия
-        Future.microtask(() {
-          if (mounted) {
-            widget.onTap();
-          }
-        });
-      },
-      onChanged: (value) {
-        // Обработка изменений текста происходит через listener контроллера
-        // Но здесь можно выполнить дополнительную логику сохранения форматирования
-        if (widget.enableLogging) {
-          _log('onChanged вызван с текстом: $value');
-        }
+    // Вычисляем оставшееся количество символов
+    final int remainingChars = widget.limits.maxCharactersPerBlock - _controller.text.length;
+    final bool isNearLimit = remainingChars < widget.limits.characterReserve;
 
-        // Отложенное обновление стилей
-        if (widget.onSpansChanged != null) {
-          // Получаем обновленные spans только один раз в следующем микротаске
-          Future.microtask(() {
-            if (mounted) {
-              final newSpans = _controller.getSpans();
-              widget.onSpansChanged!(newSpans);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        TextField(
+          controller: _controller,
+          focusNode: _focusNode,
+          maxLines: null,
+          minLines: 1,
+          keyboardType: TextInputType.multiline,
+          textCapitalization: TextCapitalization.sentences,
+          style: TextStyle(fontSize: widget.style.fontSize),
+          textAlign: textAlignment, // Применяем выравнивание
+          decoration: InputDecoration(
+            border: InputBorder.none,
+            enabledBorder: InputBorder.none,
+            focusedBorder: InputBorder.none,
+            errorBorder: InputBorder.none,
+            focusedErrorBorder: InputBorder.none,
+            disabledBorder: InputBorder.none,
+            isDense: true,
+            contentPadding: EdgeInsets.zero,
+          ),
+          inputFormatters: [
+            // Ограничение на длину текста с обработкой переполнения
+            LimitedLengthTextInputFormatter(
+              widget.limits.maxCharactersPerBlock,
+              onOverflow: (overflowText) {
+                if (overflowText.isNotEmpty) {
+                  _handleOverflow(overflowText);
+                }
+              },
+            ),
+          ],
+          onTap: () {
+            // Используем микротаск для обработки нажатия
+            Future.microtask(() {
+              if (mounted) {
+                widget.onTap();
+              }
+            });
+          },
+          onChanged: (value) {
+            // Обработка изменений текста происходит через listener контроллера
+            if (widget.enableLogging) {
+              _log('onChanged вызван с текстом: $value');
             }
-          });
-        }
-      },
-      onEditingComplete: () {
-        // При завершении редактирования, убеждаемся, что все изменения spans сохранены
-        if (widget.onSpansChanged != null) {
-          Future.microtask(() {
-            if (mounted) {
-              widget.onSpansChanged!(_controller.getSpans());
+
+            // Отложенное обновление стилей
+            if (widget.onSpansChanged != null) {
+              // Получаем обновленные spans только один раз в следующем микротаске
+              Future.microtask(() {
+                if (mounted) {
+                  final newSpans = _controller.getSpans();
+                  widget.onSpansChanged!(newSpans);
+                }
+              });
             }
-          });
-        }
-      },
+          },
+          onEditingComplete: () {
+            // При завершении редактирования, убеждаемся, что все изменения spans сохранены
+            if (widget.onSpansChanged != null) {
+              Future.microtask(() {
+                if (mounted) {
+                  widget.onSpansChanged!(_controller.getSpans());
+                }
+              });
+            }
+          },
+        ),
+        // Индикатор оставшихся символов, если это близко к лимиту
+        if (isNearLimit)
+          Padding(
+            padding: const EdgeInsets.only(top: 4.0),
+            child: Text(
+              'Осталось символов: $remainingChars',
+              style: TextStyle(fontSize: 12, color: remainingChars < 50 ? Colors.red : Colors.orange),
+            ),
+          ),
+      ],
     );
   }
 
@@ -1340,6 +1803,208 @@ class _TextEditorState extends State<TextEditor> {
     }
 
     return closestSize;
+  }
+
+  TextStyle _getFlutterTextStyle(doc.TextStyleAttributes style) {
+    return TextStyle(
+      fontWeight: style.bold ? FontWeight.bold : FontWeight.normal,
+      fontStyle: style.italic ? FontStyle.italic : FontStyle.normal,
+      decoration:
+          style.link != null
+              ? TextDecoration.underline
+              : (style.underline ? TextDecoration.underline : TextDecoration.none),
+      decorationColor: style.link != null ? Colors.blue : null,
+      decorationThickness: style.link != null ? 2.0 : 1.0,
+      color: style.link != null ? Colors.blue : style.color,
+      fontSize: style.fontSize,
+    );
+  }
+
+  // Получает иконку для текущего выравнивания
+  IconData _getAlignmentIcon(TextAlign alignment) {
+    switch (alignment) {
+      case TextAlign.left:
+        return Icons.format_align_left;
+      case TextAlign.center:
+        return Icons.format_align_center;
+      case TextAlign.right:
+        return Icons.format_align_right;
+      case TextAlign.justify:
+        return Icons.format_align_justify;
+      default:
+        return Icons.format_align_left;
+    }
+  }
+
+  // Отображает диалог для добавления или редактирования ссылки
+  Future<void> _showLinkDialog(String? currentLink) async {
+    final TextEditingController linkController = TextEditingController(text: currentLink ?? '');
+    String? newLink;
+    final editorTheme = EditorThemeExtension.of(context);
+
+    // Определяем границы ссылки или выделения
+    int startLink = _controller.selection.start;
+    int endLink = _controller.selection.end;
+    bool hasSelection = startLink != endLink;
+    bool isExistingLink = currentLink != null;
+
+    // Если нет выделения, но есть ссылка, находим её границы
+    if (!hasSelection && isExistingLink) {
+      // Ищем границы ссылки, на которой стоит курсор
+      int currentPos = 0;
+      for (final span in _controller.getSpans()) {
+        final spanStart = currentPos;
+        final spanEnd = currentPos + span.text.length;
+
+        if (span.style.link == currentLink &&
+            spanStart <= _controller.selection.start &&
+            spanEnd >= _controller.selection.start) {
+          startLink = spanStart;
+          endLink = spanEnd;
+          hasSelection = true;
+          break;
+        }
+
+        currentPos = spanEnd;
+      }
+    }
+
+    // Если нет выделения и нет ссылки, показываем сообщение
+    if (!hasSelection && !isExistingLink) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Выделите текст для создания ссылки'),
+          duration: Duration(seconds: 2),
+          backgroundColor: editorTheme.toolbarColor,
+        ),
+      );
+      return;
+    }
+
+    await showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: Text(
+            isExistingLink ? 'Изменить ссылку' : 'Добавить ссылку',
+            style: TextStyle(color: editorTheme.defaultTextStyle.color),
+          ),
+          backgroundColor: editorTheme.backgroundColor,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(editorTheme.borderRadius),
+            side: BorderSide(color: editorTheme.borderColor),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              TextField(
+                controller: linkController,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'https://example.com',
+                  labelText: 'URL',
+                  enabledBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: editorTheme.borderColor),
+                    borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2),
+                  ),
+                  focusedBorder: OutlineInputBorder(
+                    borderSide: BorderSide(color: editorTheme.linkColor),
+                    borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2),
+                  ),
+                ),
+                keyboardType: TextInputType.url,
+                textInputAction: TextInputAction.done,
+                style: TextStyle(color: editorTheme.defaultTextStyle.color),
+                onSubmitted: (value) {
+                  newLink = value.trim();
+                  Navigator.of(context).pop();
+                },
+              ),
+              if (isExistingLink) ...[
+                const SizedBox(height: 8),
+                OutlinedButton.icon(
+                  icon: Icon(Icons.open_in_new, size: 16, color: editorTheme.linkColor),
+                  label: Text('Открыть в браузере', style: TextStyle(color: editorTheme.linkColor)),
+                  style: OutlinedButton.styleFrom(
+                    side: BorderSide(color: editorTheme.linkColor),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(editorTheme.borderRadius / 2)),
+                  ),
+                  onPressed: () async {
+                    final url = currentLink;
+                    if (await canLaunch(url!)) {
+                      await launch(url);
+                    } else {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('Не удалось открыть $url'), backgroundColor: editorTheme.toolbarColor),
+                      );
+                    }
+                  },
+                ),
+              ],
+            ],
+          ),
+          actions: [
+            if (isExistingLink)
+              TextButton(
+                style: TextButton.styleFrom(foregroundColor: Colors.red),
+                onPressed: () {
+                  Navigator.of(context).pop();
+                  newLink = ''; // Специальный флаг для удаления ссылки
+                },
+                child: const Text('Удалить'),
+              ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: editorTheme.toolbarIconColor),
+              onPressed: () {
+                Navigator.of(context).pop();
+              },
+              child: const Text('Отмена'),
+            ),
+            TextButton(
+              style: TextButton.styleFrom(foregroundColor: editorTheme.linkColor),
+              onPressed: () {
+                newLink = linkController.text.trim();
+                Navigator.of(context).pop();
+              },
+              child: const Text('Сохранить'),
+            ),
+          ],
+        );
+      },
+    );
+
+    // Применяем ссылку, только если она была изменена
+    if (newLink != null) {
+      // Используем микротаск для предотвращения изменений во время рендеринга
+      Future.microtask(() {
+        if (mounted) {
+          // Сохраняем текущее выделение
+          final currentSelection = _controller.selection;
+
+          // Создаем временное выделение, охватывающее всю ссылку
+          final fullLinkSelection = TextSelection(baseOffset: startLink, extentOffset: endLink);
+
+          // Устанавливаем выделение на всю ссылку
+          _controller.selection = fullLinkSelection;
+
+          if (newLink!.isEmpty) {
+            // Удаляем ссылку
+            _applyStyle((s) => s.copyWith(removeLink: true));
+          } else {
+            // Применяем или обновляем ссылку
+            _applyStyle((s) => s.copyWith(link: newLink, underline: true));
+          }
+
+          // Восстанавливаем исходное выделение
+          Future.microtask(() {
+            if (mounted && _focusNode.hasFocus) {
+              _controller.selection = currentSelection;
+              widget.onSelectionChanged(_controller.selection);
+            }
+          });
+        }
+      });
+    }
   }
 }
 

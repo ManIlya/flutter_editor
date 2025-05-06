@@ -1,5 +1,4 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/gestures.dart';
 import 'package:float_column/float_column.dart';
 import 'package:image_picker/image_picker.dart' as picker;
 import 'dart:math';
@@ -933,6 +932,7 @@ class _CustomEditorState extends State<CustomEditor> {
               onSelectionChanged: _handleSelectionChanged,
               onDelete: () => _removeElement(index),
               enableLogging: widget.enableLogging,
+              onOverflow: _handleTextOverflow,
             ),
           ),
           // Рукоятка для перетаскивания
@@ -1121,6 +1121,7 @@ class _CustomEditorState extends State<CustomEditor> {
                 onSelectionChanged: _handleSelectionChanged,
                 onDelete: () => _removeElement(i),
                 enableLogging: widget.enableLogging,
+                onOverflow: _handleTextOverflow,
               ),
             ),
           ),
@@ -1236,5 +1237,73 @@ class _CustomEditorState extends State<CustomEditor> {
     // Для процента от экрана используем точное значение, указанное пользователем
     // Преобразуем процент (0-100) в долю (0.0-1.0)
     return imageElement.sizePercent / 100;
+  }
+
+  // Создает новый текстовый блок с заданным текстом и стилем
+  void _createNewTextBlock(String text, TextStyleAttributes? style) {
+    if (widget.enableLogging) {
+      print('Создание нового текстового блока с текстом длиной ${text.length}');
+    }
+
+    // Определяем стиль для нового блока
+    TextStyleAttributes newStyle;
+    if (style != null) {
+      newStyle = style;
+    } else if (_selectedIndex != null &&
+        _selectedIndex! < _document.elements.length &&
+        _document.elements[_selectedIndex!] is TextElement) {
+      // Если выбран текстовый элемент, используем его стиль
+      newStyle = (_document.elements[_selectedIndex!] as TextElement).style;
+    } else {
+      // Иначе используем стиль по умолчанию
+      newStyle = TextStyleAttributes();
+    }
+
+    // Создаем новый текстовый элемент
+    final newElement = TextElement(text: text, style: newStyle);
+
+    // Если выбран элемент, вставляем новый блок после него
+    if (_selectedIndex != null && _selectedIndex! < _document.elements.length) {
+      _document.insertElement(_selectedIndex! + 1, newElement);
+      // Выбираем новый блок
+      setState(() {
+        _selectedIndex = _selectedIndex! + 1;
+      });
+    } else {
+      // Если ничего не выбрано, добавляем в конец документа
+      _document.addElement(newElement);
+      setState(() {
+        _selectedIndex = _document.elements.length - 1;
+      });
+    }
+
+    // Уведомляем об изменении документа
+    _notifyDocumentChanged();
+
+    if (widget.enableLogging) {
+      print('Новый текстовый блок создан на позиции ${_selectedIndex}');
+    }
+  }
+
+  // Обработка переполнения текста из TextEditor
+  void _handleTextOverflow(String overflowText) {
+    if (widget.enableLogging) {
+      print('Получено переполнение текста: ${overflowText.length} символов');
+    }
+
+    // Определяем стиль текущего элемента
+    TextStyleAttributes? currentStyle;
+    if (_selectedIndex != null &&
+        _selectedIndex! < _document.elements.length &&
+        _document.elements[_selectedIndex!] is TextElement) {
+      currentStyle = (_document.elements[_selectedIndex!] as TextElement).style;
+    }
+
+    // Создаем новый текстовый блок с переполненным текстом
+    _createNewTextBlock(overflowText, currentStyle);
+
+    if (widget.enableLogging) {
+      print('Создан новый блок для переполненного текста');
+    }
   }
 }
