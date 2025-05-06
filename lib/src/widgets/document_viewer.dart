@@ -24,7 +24,6 @@ class DocumentViewer extends StatelessWidget {
     final editorTheme = EditorThemeExtension.of(context);
 
     return Container(
-      padding: EdgeInsets.all(editorTheme.elementSpacing),
       decoration: BoxDecoration(
         color: editorTheme.backgroundColor,
         // Удаляем border, чтобы убрать рамку
