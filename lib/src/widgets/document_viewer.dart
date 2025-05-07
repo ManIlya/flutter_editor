@@ -66,8 +66,8 @@ class DocumentViewer extends StatelessWidget {
           result.add(const TextSpan(text: '\n\n')); // Добавляем двойной перенос для одиночных \n
         }
 
-        // Добавляем отступ, если он включен
-        if (enableFirstLineIndent) {
+        // Добавляем отступ только для первой строки параграфа
+        if (j == 0 && enableFirstLineIndent) {
           result.add(_createIndentSpan());
         }
 
@@ -97,44 +97,71 @@ class DocumentViewer extends StatelessWidget {
 
         final List<InlineSpan> textSpans = [];
 
-        // Добавляем текст как TextSpan или несколько TextSpan'ов, если он стилизован
-        if (element.spans.length <= 1) {
-          // Простой TextSpan для одного стиля
-          final style = element.style;
-          if (enableLogging) print('DocumentViewer: - Одиночный span: текст="${element.text}", link=${style.link}');
+        // Обрабатываем все спаны как единый параграф
+        if (element.spans.isNotEmpty) {
+          // Группируем спаны по абзацам
+          final List<List<doc.TextSpanDocument>> paragraphs = [];
+          List<doc.TextSpanDocument> currentParagraph = [];
 
-          textSpans.add(
-            TextSpan(
-              text: element.text,
-              style: _convertToTextStyle(context, style),
-              recognizer:
-                  style.link != null
-                      ? (TapGestureRecognizer()
-                        ..onTap = () {
-                          _handleLinkTap(style.link!);
-                        })
-                      : null,
-            ),
-          );
-        } else {
-          // Несколько TextSpan'ов для разных стилей
           for (int j = 0; j < element.spans.length; j++) {
             final span = element.spans[j];
-            if (enableLogging) print('DocumentViewer: - Span $j: текст="${span.text}", link=${span.style.link}');
+            final parts = span.text.split('\n');
 
-            textSpans.add(
-              TextSpan(
-                text: span.text,
-                style: _convertToTextStyle(context, span.style),
-                recognizer:
-                    span.style.link != null
-                        ? (TapGestureRecognizer()
-                          ..onTap = () {
-                            _handleLinkTap(span.style.link!);
-                          })
-                        : null,
-              ),
-            );
+            // Добавляем первую часть в текущий абзац
+            if (parts[0].isNotEmpty) {
+              currentParagraph.add(doc.TextSpanDocument(
+                text: parts[0],
+                style: span.style,
+              ));
+            }
+
+            // Если есть переносы строк, создаем новые абзацы
+            for (int k = 1; k < parts.length; k++) {
+              if (currentParagraph.isNotEmpty) {
+                paragraphs.add(List.from(currentParagraph));
+                currentParagraph = [];
+              }
+              if (parts[k].isNotEmpty) {
+                currentParagraph.add(doc.TextSpanDocument(
+                  text: parts[k],
+                  style: span.style,
+                ));
+              }
+            }
+          }
+
+          // Добавляем последний абзац, если он не пустой
+          if (currentParagraph.isNotEmpty) {
+            paragraphs.add(currentParagraph);
+          }
+
+          // Добавляем абзацы с отступами
+          for (int j = 0; j < paragraphs.length; j++) {
+            // Добавляем отступ в начале абзаца
+            if (enableFirstLineIndent) {
+              textSpans.add(_createIndentSpan());
+            }
+
+            // Добавляем все спаны абзаца
+            for (final span in paragraphs[j]) {
+              textSpans.add(
+                TextSpan(
+                  text: span.text,
+                  style: _convertToTextStyle(context, span.style),
+                  recognizer: span.style.link != null
+                      ? (TapGestureRecognizer()
+                        ..onTap = () {
+                          _handleLinkTap(span.style.link!);
+                        })
+                      : null,
+                ),
+              );
+            }
+
+            // Добавляем перенос строки, если это не последний абзац
+            if (j < paragraphs.length - 1) {
+              textSpans.add(const TextSpan(text: '\n\n'));
+            }
           }
         }
 
@@ -142,11 +169,7 @@ class DocumentViewer extends StatelessWidget {
         elements.add(
           Text.rich(
             TextSpan(
-              children:
-                  textSpans.expand((span) {
-                    if (span is! TextSpan) return [span];
-                    return _processTextWithIndents(span);
-                  }).toList()..add(TextSpan(text: '\n')),
+              children: textSpans..add(TextSpan(text: '\n')),
             ),
             textAlign: textAlignment,
           ),
@@ -185,20 +208,18 @@ class DocumentViewer extends StatelessWidget {
               width: pictureSize,
               fit: BoxFit.fitWidth,
               // height: element.height,
-              placeholder:
-                  (context, url) => Container(
-                    width: pictureSize,
-                    // height: element.height,
-                    color: editorTheme.placeholderColor,
-                    child: Center(child: CircularProgressIndicator(color: editorTheme.toolbarIconColor)),
-                  ),
-              errorWidget:
-                  (context, url, error) => Container(
-                    width: pictureSize,
-                    // height: element.height,
-                    color: editorTheme.placeholderColor,
-                    child: Icon(Icons.error, color: editorTheme.toolbarIconColor),
-                  ),
+              placeholder: (context, url) => Container(
+                width: pictureSize,
+                // height: element.height,
+                color: editorTheme.placeholderColor,
+                child: Center(child: CircularProgressIndicator(color: editorTheme.toolbarIconColor)),
+              ),
+              errorWidget: (context, url, error) => Container(
+                width: pictureSize,
+                // height: element.height,
+                color: editorTheme.placeholderColor,
+                child: Icon(Icons.error, color: editorTheme.toolbarIconColor),
+              ),
             ),
 
             // Подпись к изображению
@@ -249,15 +270,13 @@ class DocumentViewer extends StatelessWidget {
     final Uri uri = Uri.parse(url);
 
     // Открываем URL через url_launcher
-    launchUrl(uri, mode: LaunchMode.externalApplication)
-        .then((success) {
-          if (!success) {
-            if (enableLogging) print('Не удалось открыть ссылку: $url');
-          }
-        })
-        .catchError((error) {
-          if (enableLogging) print('Ошибка при открытии ссылки: $error');
-        });
+    launchUrl(uri, mode: LaunchMode.externalApplication).then((success) {
+      if (!success) {
+        if (enableLogging) print('Не удалось открыть ссылку: $url');
+      }
+    }).catchError((error) {
+      if (enableLogging) print('Ошибка при открытии ссылки: $error');
+    });
   }
 
   /// Преобразует TextStyleAttributes в TextStyle Flutter
@@ -288,16 +307,14 @@ class DocumentViewer extends StatelessWidget {
     return baseStyle.copyWith(
       fontWeight: attributes.bold ? FontWeight.bold : FontWeight.normal,
       fontStyle: attributes.italic ? FontStyle.italic : FontStyle.normal,
-      decoration:
-          attributes.link != null
-              ? TextDecoration.underline
-              : (attributes.underline ? TextDecoration.underline : TextDecoration.none),
+      decoration: attributes.link != null
+          ? TextDecoration.underline
+          : (attributes.underline ? TextDecoration.underline : TextDecoration.none),
       decorationColor: attributes.link != null ? editorTheme.linkColor : null,
       decorationThickness: attributes.link != null ? 2.0 : 1.0,
-      color:
-          attributes.link != null
-              ? editorTheme.linkColor
-              : (attributes.color != Colors.black ? attributes.color : baseStyle.color),
+      color: attributes.link != null
+          ? editorTheme.linkColor
+          : (attributes.color != Colors.black ? attributes.color : baseStyle.color),
       fontSize: attributes.fontSize != baseStyle.fontSize ? attributes.fontSize : baseStyle.fontSize,
     );
   }
