@@ -22,12 +22,12 @@ class TextStyleAttributes {
     this.color,
     this.fontSize = 14.0,
     this.link, // Ссылка может быть null
-    this.alignment = TextAlign.left, // По умолчанию выравнивание по левому краю
+    this.alignment = TextAlign.justify, // По умолчанию выравнивание по левому краю
   });
   factory TextStyleAttributes.fromTextStyle({
     required TextStyle textStyle,
     String? link,
-    TextAlign alignment = TextAlign.left,
+    TextAlign alignment = TextAlign.justify,
   }) => TextStyleAttributes(
     bold: textStyle.fontWeight == FontWeight.bold,
     italic: textStyle.fontStyle == FontStyle.italic,
@@ -506,7 +506,7 @@ class DocumentModel {
       case TextAlign.end:
         return 'end';
       default:
-        return 'left';
+        return 'justify';
     }
   }
 
@@ -525,7 +525,7 @@ class DocumentModel {
       case 'end':
         return TextAlign.end;
       default:
-        return TextAlign.left;
+        return TextAlign.justify;
     }
   }
 

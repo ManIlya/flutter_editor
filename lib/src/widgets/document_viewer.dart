@@ -146,7 +146,7 @@ class DocumentViewer extends StatelessWidget {
                   textSpans.expand((span) {
                     if (span is! TextSpan) return [span];
                     return _processTextWithIndents(span);
-                  }).toList(),
+                  }).toList()..add(TextSpan(text: '\n')),
             ),
             textAlign: textAlignment,
           ),
