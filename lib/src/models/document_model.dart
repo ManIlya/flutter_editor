@@ -20,7 +20,7 @@ class TextStyleAttributes {
     this.italic = false,
     this.underline = false,
     this.color,
-    this.fontSize = 14.0,
+    this.fontSize = 20.0,
     this.link, // Ссылка может быть null
     this.alignment = TextAlign.justify, // По умолчанию выравнивание по левому краю
   });
