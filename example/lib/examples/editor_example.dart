@@ -166,8 +166,7 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
 
   // Создаем список пользовательских иконок для тулбара
   List<Widget> _buildCustomToolbarItems() {
-    return [
-    ];
+    return [];
   }
 
   @override
@@ -178,8 +177,8 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
         _useCustomTheme
             ? _getCustomBrandTheme()
             : Theme.of(context).brightness == Brightness.dark
-            ? EditorThemeExtension.dark
-            : EditorThemeExtension.light,
+                ? EditorThemeExtension.dark
+                : EditorThemeExtension.light,
       ],
     );
 
@@ -213,39 +212,46 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
         ),
         body: Padding(
           padding: const EdgeInsets.all(16.0),
-          child:
-              _isEditMode
-                  ? CustomEditor(
-                    initialDocument: _document,
-                    onDocumentChanged: (newDoc) {
-                      setState(() {
-                        _document = newDoc;
-                      });
-                    },
-                    enableLogging: true,
-                    // Добавляем пользовательские иконки тулбара
-                    customToolbarItems: _buildCustomToolbarItems(),
-                    // Пример функции для преобразования файла в URL
-                    fileToUrlConverter: (Uint8List fileData, String fileName) async {
-                      // В реальном приложении здесь должен быть код загрузки файла на сервер
-                      // и получения URL. Сейчас просто возвращаем примерную ссылку для демонстрации.
+          child: _isEditMode
+              ? CustomEditor(
+                  initialDocument: _document,
+                  onDocumentChanged: (newDoc) {
+                    setState(() {
+                      _document = newDoc;
+                    });
+                  },
+                  enableLogging: true,
+                  // Добавляем пользовательские иконки тулбара
+                  customToolbarItems: _buildCustomToolbarItems(),
+                  // Пример функции для преобразования файла в URL
+                  fileToUrlConverter: (Uint8List fileData, String fileName) async {
+                    // В реальном приложении здесь должен быть код загрузки файла на сервер
+                    // и получения URL. Сейчас просто возвращаем примерную ссылку для демонстрации.
 
-                      // Пример имитации загрузки файла
-                      await Future.delayed(const Duration(seconds: 1));
+                    // Пример имитации загрузки файла
+                    await Future.delayed(const Duration(seconds: 1));
 
-                      // Для тестовых целей можно вывести размер файла
-                      print('Загружаемый файл: $fileName, размер: ${fileData.length} байт');
+                    // Для тестовых целей можно вывести размер файла
+                    print('Загружаемый файл: $fileName, размер: ${fileData.length} байт');
 
-                      // Возвращаем фиктивный URL
-                      return 'https://example.com/uploaded_images/$fileName';
+                    // Возвращаем фиктивный URL
+                    return 'https://example.com/uploaded_images/$fileName';
 
-                      // Если возвращается null, будет использовано изображение по умолчанию
-                    },
-                    // Высота области редактирования (по умолчанию 750px)
-                    // Если null, будет использована вся доступная высота
-                    editorHeight: 500, // Можно указать конкретную высоту или null
-                  )
-                  : DocumentViewer(document: _document, enableLogging: false),
+                    // Если возвращается null, будет использовано изображение по умолчанию
+                  },
+                  // Высота области редактирования (по умолчанию 750px)
+                  // Если null, будет использована вся доступная высота
+                  editorHeight: 500, // Можно указать конкретную высоту или null
+                )
+              : DocumentViewer(
+                  document: _document,
+                  enableLogging: false,
+                  onImageTap: (String imageUrl, ImageElement imageElement) {
+                    // Обработка нажатия на изображение
+                    print('Нажатие на изображение: $imageUrl');
+                    // Здесь можно реализовать нужный функционал
+                  },
+                ),
         ),
       ),
     );
@@ -288,7 +294,12 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
 ///    )
 ///    
 ///    // Для просмотра:
-///    DocumentViewer(document: yourDocument)
+///    DocumentViewer(
+///      document: yourDocument,
+///      onImageTap: (imageUrl, imageElement) {
+///        // Обработка нажатия на изображение
+///      },
+///    )
 ///    ```
 /// 
 /// 4. Для создания собственной темы создайте экземпляр EditorThemeExtension:

@@ -68,10 +68,8 @@ class _FormatConversionExampleState extends State<FormatConversionExample> {
         break;
       case 'Plain Text':
         // Преобразуем документ в простой текст
-        _inputController.text = _document.elements
-            .where((e) => e is TextElement)
-            .map((e) => (e as TextElement).text)
-            .join('\n\n');
+        _inputController.text =
+            _document.elements.where((e) => e is TextElement).map((e) => (e as TextElement).text).join('\n\n');
         break;
     }
   }
@@ -154,10 +152,9 @@ class _FormatConversionExampleState extends State<FormatConversionExample> {
                 const SizedBox(width: 16),
                 DropdownButton<String>(
                   value: _currentFormat,
-                  items:
-                      ['JSON', 'HTML', 'Plain Text'].map((format) {
-                        return DropdownMenuItem<String>(value: format, child: Text(format));
-                      }).toList(),
+                  items: ['JSON', 'HTML', 'Plain Text'].map((format) {
+                    return DropdownMenuItem<String>(value: format, child: Text(format));
+                  }).toList(),
                   onChanged: _changeFormat,
                 ),
                 const Spacer(),
@@ -168,99 +165,102 @@ class _FormatConversionExampleState extends State<FormatConversionExample> {
 
           // Основное содержимое
           Expanded(
-            child:
-                _isEditing
-                    ? CustomEditor(
-                      initialDocument: _document,
-                      onDocumentChanged: (document) {
-                        setState(() {
-                          _document = document;
-                        });
-                      },
-                    )
-                    : SingleChildScrollView(
-                      padding: const EdgeInsets.all(8.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Text(
-                            'Введите или вставьте входные данные:',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+            child: _isEditing
+                ? CustomEditor(
+                    initialDocument: _document,
+                    onDocumentChanged: (document) {
+                      setState(() {
+                        _document = document;
+                      });
+                    },
+                  )
+                : SingleChildScrollView(
+                    padding: const EdgeInsets.all(8.0),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Введите или вставьте входные данные:',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(4),
                           ),
-                          const SizedBox(height: 8),
-                          Container(
-                            decoration: BoxDecoration(
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            height: 300,
-                            child: TextField(
-                              controller: _inputController,
-                              maxLines: null,
-                              expands: true,
-                              decoration: const InputDecoration(
-                                contentPadding: EdgeInsets.all(8),
-                                border: InputBorder.none,
-                                hintText: 'Введите данные в выбранном формате...',
-                              ),
+                          height: 300,
+                          child: TextField(
+                            controller: _inputController,
+                            maxLines: null,
+                            expands: true,
+                            decoration: const InputDecoration(
+                              contentPadding: EdgeInsets.all(8),
+                              border: InputBorder.none,
+                              hintText: 'Введите данные в выбранном формате...',
                             ),
                           ),
-                          const SizedBox(height: 16),
-                          const Text(
-                            'Предварительный просмотр:',
-                            style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 16),
+                        const Text(
+                          'Предварительный просмотр:',
+                          style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16),
+                        ),
+                        const SizedBox(height: 8),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: Colors.grey.shade50,
+                            border: Border.all(color: Colors.grey.shade300),
+                            borderRadius: BorderRadius.circular(4),
                           ),
-                          const SizedBox(height: 8),
-                          Container(
-                            padding: const EdgeInsets.all(16),
-                            decoration: BoxDecoration(
-                              color: Colors.grey.shade50,
-                              border: Border.all(color: Colors.grey.shade300),
-                              borderRadius: BorderRadius.circular(4),
-                            ),
-                            child: SizedBox(
-                              width: double.infinity,
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if (_lastConversionResult.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(bottom: 8.0),
-                                      child: Text(
-                                        _lastConversionResult,
-                                        style: TextStyle(
-                                          color:
-                                              _lastConversionResult.contains('Ошибка')
-                                                  ? Colors.red
-                                                  : Colors.green.shade700,
-                                          fontWeight: FontWeight.bold,
-                                        ),
+                          child: SizedBox(
+                            width: double.infinity,
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if (_lastConversionResult.isNotEmpty)
+                                  Padding(
+                                    padding: const EdgeInsets.only(bottom: 8.0),
+                                    child: Text(
+                                      _lastConversionResult,
+                                      style: TextStyle(
+                                        color: _lastConversionResult.contains('Ошибка')
+                                            ? Colors.red
+                                            : Colors.green.shade700,
+                                        fontWeight: FontWeight.bold,
                                       ),
                                     ),
-                                  DocumentViewer(document: _document),
-                                ],
-                              ),
+                                  ),
+                                DocumentViewer(
+                                  document: _document,
+                                  onImageTap: (String imageUrl, ImageElement imageElement) {
+                                    // Обработка нажатия на изображение
+                                    print('Нажатие на изображение: $imageUrl');
+                                  },
+                                ),
+                              ],
                             ),
                           ),
-                        ],
-                      ),
+                        ),
+                      ],
                     ),
+                  ),
           ),
         ],
       ),
-      floatingActionButton:
-          _isEditing
-              ? FloatingActionButton(
-                onPressed: () {
-                  setState(() {
-                    _isEditing = false;
-                    _updateInputText();
-                  });
-                },
-                tooltip: 'Сохранить и просмотреть',
-                child: const Icon(Icons.code),
-              )
-              : null,
+      floatingActionButton: _isEditing
+          ? FloatingActionButton(
+              onPressed: () {
+                setState(() {
+                  _isEditing = false;
+                  _updateInputText();
+                });
+              },
+              tooltip: 'Сохранить и просмотреть',
+              child: const Icon(Icons.code),
+            )
+          : null,
     );
   }
 }

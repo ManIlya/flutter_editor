@@ -68,6 +68,14 @@ class ViewerExampleScreen extends StatelessWidget {
           child: DocumentViewer(
             document: document,
             enableLogging: false, // По умолчанию выключено, можно включить для отладки
+            onImageTap: (String imageUrl, ImageElement imageElement) {
+              // Пример обработки нажатия на изображение
+              print('Нажатие на изображение: $imageUrl');
+              // Здесь можно добавить вашу логику, например:
+              // - Открыть изображение на весь экран
+              // - Скачать изображение
+              // - Поделиться изображением и т.д.
+            },
           ),
         ),
       ),
@@ -146,7 +154,12 @@ class ViewerExampleScreen extends StatelessWidget {
 ///
 /// 3. Используйте DocumentViewer в своем интерфейсе:
 ///    ```dart
-///    DocumentViewer(document: yourDocument)
+///    DocumentViewer(
+///      document: yourDocument,
+///      onImageTap: (imageUrl, imageElement) {
+///        // Обработка нажатия на изображение
+///      },
+///    )
 ///    ```
 ///
 /// 4. При необходимости примените пользовательскую тему:

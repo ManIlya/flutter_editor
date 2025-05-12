@@ -11,12 +11,15 @@ class DocumentViewer extends StatelessWidget {
   final doc.DocumentModel document;
   final bool enableLogging;
   final bool enableFirstLineIndent; // Добавляем параметр для управления отступами
+  /// Колбек для обработки нажатия на изображение
+  final Function(String imageUrl, doc.ImageElement imageElement)? onImageTap;
 
   const DocumentViewer({
     super.key,
     required this.document,
     this.enableLogging = false,
     this.enableFirstLineIndent = true, // По умолчанию отступы включены
+    this.onImageTap,
   });
 
   @override
@@ -202,23 +205,26 @@ class DocumentViewer extends StatelessWidget {
         Widget imageWidget = Column(
           crossAxisAlignment: CrossAxisAlignment.center,
           children: [
-            // Изображение
-            CachedNetworkImage(
-              imageUrl: element.imageUrl,
-              width: pictureSize,
-              fit: BoxFit.fitWidth,
-              // height: element.height,
-              placeholder: (context, url) => Container(
+            // Изображение обернутое в InkWell для обработки нажатия
+            InkWell(
+              onTap: onImageTap != null ? () => onImageTap!(element.imageUrl, element) : null,
+              child: CachedNetworkImage(
+                imageUrl: element.imageUrl,
                 width: pictureSize,
+                fit: BoxFit.fitWidth,
                 // height: element.height,
-                color: editorTheme.placeholderColor,
-                child: Center(child: CircularProgressIndicator(color: editorTheme.toolbarIconColor)),
-              ),
-              errorWidget: (context, url, error) => Container(
-                width: pictureSize,
-                // height: element.height,
-                color: editorTheme.placeholderColor,
-                child: Icon(Icons.error, color: editorTheme.toolbarIconColor),
+                placeholder: (context, url) => Container(
+                  width: pictureSize,
+                  // height: element.height,
+                  color: editorTheme.placeholderColor,
+                  child: Center(child: CircularProgressIndicator(color: editorTheme.toolbarIconColor)),
+                ),
+                errorWidget: (context, url, error) => Container(
+                  width: pictureSize,
+                  // height: element.height,
+                  color: editorTheme.placeholderColor,
+                  child: Icon(Icons.error, color: editorTheme.toolbarIconColor),
+                ),
               ),
             ),
 

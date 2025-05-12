@@ -190,8 +190,8 @@ class _EditorPageState extends State<EditorPage> {
   void _showPreview() {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder:
-            (context) => DocumentPreviewScreen(document: _document, onEditPressed: () => Navigator.of(context).pop()),
+        builder: (context) =>
+            DocumentPreviewScreen(document: _document, onEditPressed: () => Navigator.of(context).pop()),
       ),
     );
   }
@@ -318,22 +318,32 @@ class _EditorPageState extends State<EditorPage> {
             ),
           ],
         ),
-        body:
-            _isEditMode
-                ? CustomEditor(
-                  initialDocument: _document,
-                  onDocumentChanged: _onDocumentChanged,
-                  fileToUrlConverter: (Uint8List fileData, String fileName) async {
-                    // Пример имитации загрузки файла
-                    await Future.delayed(const Duration(milliseconds: 800));
-                    return 'https://example.com/images/$fileName';
-                  },
-
-              enableLogging: true,
-                )
-                : SingleChildScrollView(
-                  child: Padding(padding: const EdgeInsets.all(16.0), child: DocumentViewer(document: _document)),
+        body: _isEditMode
+            ? CustomEditor(
+                initialDocument: _document,
+                onDocumentChanged: _onDocumentChanged,
+                fileToUrlConverter: (Uint8List fileData, String fileName) async {
+                  // Пример имитации загрузки файла
+                  await Future.delayed(const Duration(milliseconds: 800));
+                  return 'https://example.com/images/$fileName';
+                },
+                enableLogging: true,
+              )
+            : SingleChildScrollView(
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: DocumentViewer(
+                    document: _document,
+                    onImageTap: (String imageUrl, ImageElement imageElement) {
+                      // Обработка нажатия на изображение
+                      ScaffoldMessenger.of(context)
+                          .showSnackBar(SnackBar(content: Text('Нажатие на изображение: $imageUrl')));
+                      print('Нажатие на изображение: $imageUrl');
+                      // Можно показать диалог, открыть изображение во внешнем приложении и т.д.
+                    },
+                  ),
                 ),
+              ),
       ),
     );
   }

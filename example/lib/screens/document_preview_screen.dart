@@ -7,7 +7,16 @@ class DocumentPreviewScreen extends StatelessWidget {
   final VoidCallback? onEditPressed;
   final bool enableLogging;
 
-  const DocumentPreviewScreen({super.key, required this.document, this.onEditPressed, this.enableLogging = false});
+  /// Колбек для обработки нажатия на изображение
+  final Function(String imageUrl, ImageElement imageElement)? onImageTap;
+
+  const DocumentPreviewScreen({
+    super.key,
+    required this.document,
+    this.onEditPressed,
+    this.enableLogging = false,
+    this.onImageTap,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -22,7 +31,11 @@ class DocumentPreviewScreen extends StatelessWidget {
       body: SingleChildScrollView(
         child: Padding(
           padding: const EdgeInsets.all(16.0),
-          child: DocumentViewer(document: document, enableLogging: enableLogging),
+          child: DocumentViewer(
+            document: document,
+            enableLogging: enableLogging,
+            onImageTap: onImageTap,
+          ),
         ),
       ),
     );
