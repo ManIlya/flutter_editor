@@ -53,12 +53,43 @@ class LimitedLengthTextInputFormatter extends TextInputFormatter {
     return _lastProcessedText == text && _lastOverflowText == overflowText;
   }
 
+  // Вспомогательный метод для логирования
+  void _log(String message) {
+    // При необходимости можно раскомментировать эту строку для отладки
+    // print('LimitedLengthTextInputFormatter: $message');
+  }
+
   @override
   TextEditingValue formatEditUpdate(TextEditingValue oldValue, TextEditingValue newValue) {
     // Проверяем на вставку большого объёма текста (признак - резкое увеличение длины)
     if (newValue.text.length > oldValue.text.length + 10) {
       // Возможная вставка текста
       final cursorPosition = oldValue.selection.baseOffset;
+
+      // Проверяем, что позиция курсора корректная
+      if (cursorPosition < 0) {
+        // Если позиция некорректная, просто разрешаем вставку текста без обработки переполнения
+        _log('Некорректная позиция курсора: $cursorPosition. Пропускаем обработку вставки.');
+
+        // Если текст превышает максимальный размер, обрезаем его
+        if (newValue.text.length > maxLength) {
+          final String limitedText = newValue.text.substring(0, maxLength);
+          final String overflowText = newValue.text.substring(maxLength);
+
+          // Вызываем колбэк для переполнения
+          if (overflowText.isNotEmpty && onOverflow != null) {
+            onOverflow!(overflowText);
+          }
+
+          return TextEditingValue(
+            text: limitedText,
+            selection: TextSelection.collapsed(offset: Math.min(limitedText.length, newValue.selection.extentOffset)),
+          );
+        }
+
+        // Возвращаем значение без изменений
+        return newValue;
+      }
 
       // Определяем вставленный текст
       String textBefore = cursorPosition > 0 ? oldValue.text.substring(0, cursorPosition) : '';
@@ -76,162 +107,100 @@ class LimitedLengthTextInputFormatter extends TextInputFormatter {
       // Полный текст после вставки
       final fullText = textBefore + pastedText + textAfter;
 
-      // ИЗМЕНЕНО: Сначала проверяем превышает ли общий размер лимит
-      // Если не превышает, то не разбиваем текст по символам переноса строки
+      _log('Вставка текста: позиция курсора=$cursorPosition, размер вставки=${pastedText.length}');
+      _log(
+          'Текст до: "$textBefore", вставка: "${pastedText.length > 20 ? pastedText.substring(0, 20) + "..." : pastedText}", текст после: "$textAfter"');
+
+      // НОВАЯ ЛОГИКА: Упрощенный подход к обработке вставки
+      // Если общий текст не превышает лимит - просто возвращаем его как есть
       if (fullText.length <= maxLength) {
-        // Текст не превышает лимит, возвращаем как есть
-        return newValue;
+        _log('Текст не превышает лимит, возвращаем как есть');
+        return TextEditingValue(
+          text: fullText,
+          selection: TextSelection.collapsed(offset: cursorPosition + pastedText.length),
+        );
       }
 
-      // Проверка на наличие символов переноса строки
-      int newlineIndex = pastedText.indexOf('\n');
+      // Если превышает лимит - обрезаем первую часть до maxLength
+      // и передаем остаток в callback переполнения
+      _log('Текст превышает лимит, создаем основной блок и блоки переполнения');
 
-      // Если в тексте есть символ переноса строки И общий размер текста превышает лимит
-      if (newlineIndex >= 0 && fullText.length > maxLength) {
-        // Берем только текст до первого переноса строки
-        final firstPart = pastedText.substring(0, newlineIndex);
-        String overflowPart = pastedText.substring(newlineIndex + 1);
+      // Определяем, сколько текста поместится в текущий блок
+      final int remainingSpace = maxLength - textBefore.length;
 
-        // Проверяем, помещается ли первая часть в лимит
-        if (textBefore.length + firstPart.length > maxLength) {
-          // Если первая часть не помещается, обрезаем ее
-          final availableSpace = maxLength - textBefore.length;
-          final truncatedFirstPart = firstPart.substring(0, Math.min(availableSpace, firstPart.length));
-          overflowPart = firstPart.substring(truncatedFirstPart.length) + '\n' + overflowPart;
+      // Если оставшееся место меньше или равно 0, значит весь вставляемый текст и textAfter уходят в переполнение
+      if (remainingSpace <= 0) {
+        _log('Нет места в текущем блоке, весь вставляемый текст идет в переполнение');
 
-          // Создаем новый текст
-          final String newText = textBefore + truncatedFirstPart;
-
-          // Проверяем на дублирование
-          if (!_wasProcessed(newText, overflowPart)) {
-            _lastProcessedText = newText;
-            _lastOverflowText = overflowPart;
-            // Вызываем колбэк для обработки переполнения
-            if (overflowPart.isNotEmpty && onOverflow != null) {
-              onOverflow!(overflowPart);
-            }
-          }
-
-          return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newText.length));
-        } else {
-          // Если первая часть помещается
-          final String newText = textBefore + firstPart;
-
-          // Проверяем на дублирование
-          if (!_wasProcessed(newText, overflowPart)) {
-            _lastProcessedText = newText;
-            _lastOverflowText = overflowPart;
-            // Вызываем колбэк для обработки переполнения
-            if (overflowPart.isNotEmpty && onOverflow != null) {
-              onOverflow!(overflowPart);
-            }
-          }
-
-          return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newText.length));
+        // Обрабатываем переполнение
+        final String overflowText = pastedText + textAfter;
+        if (overflowText.isNotEmpty && onOverflow != null && !_wasProcessed(textBefore, overflowText)) {
+          _lastProcessedText = textBefore;
+          _lastOverflowText = overflowText;
+          onOverflow!(overflowText);
         }
+
+        return TextEditingValue(
+          text: textBefore,
+          selection: TextSelection.collapsed(offset: textBefore.length),
+        );
       }
 
-      // Если весь текст вместе с вставкой превышает лимит
-      if (fullText.length > maxLength) {
-        // Сколько текста можно добавить до достижения лимита
-        final availableSpace = maxLength - textBefore.length - textAfter.length;
+      // Иначе берем часть вставляемого текста, которая поместится
+      final String insertedPart = pastedText.substring(0, Math.min(remainingSpace, pastedText.length));
+      final String newText = textBefore + insertedPart;
 
-        // ИЗМЕНЕНО: Используем точный maxLength для проверки, а не threshold
-        // Проверяем, занимает ли вставляемый текст более предела maxLength
-        if (pastedText.length > maxLength) {
-          // Разбиваем вставляемый текст по maxLength
-          final int splitPoint = maxLength;
-          final String firstPart = pastedText.substring(0, Math.min(splitPoint, pastedText.length));
-          String overflowPart = "";
-
-          if (pastedText.length > splitPoint) {
-            overflowPart = pastedText.substring(splitPoint);
-          }
-
-          // Собираем новый текст только с первой частью вставки (без textAfter)
-          final String newText = textBefore + firstPart;
-
-          // Проверяем на дублирование
-          final String combinedOverflow = overflowPart + textAfter;
-          if (!_wasProcessed(newText, combinedOverflow)) {
-            _lastProcessedText = newText;
-            _lastOverflowText = combinedOverflow;
-            // Вызываем колбэк для обработки переполнения (включая оставшуюся часть и textAfter)
-            if (combinedOverflow.isNotEmpty && onOverflow != null) {
-              onOverflow!(combinedOverflow);
-            }
-          }
-
-          // Возвращаем отформатированное значение
-          return TextEditingValue(text: newText, selection: TextSelection.collapsed(offset: newText.length));
-        } else if (availableSpace > 0) {
-          // Если текст не занимает maxLength, но всё равно не помещается целиком
-          final String firstPart = pastedText.substring(0, Math.min(availableSpace, pastedText.length));
-          String overflowPart = "";
-
-          if (pastedText.length > availableSpace) {
-            overflowPart = pastedText.substring(availableSpace);
-          }
-
-          // Собираем новый текст с первой частью вставки
-          final String newText = textBefore + firstPart + textAfter;
-
-          // Проверяем на дублирование
-          if (!_wasProcessed(newText, overflowPart)) {
-            _lastProcessedText = newText;
-            _lastOverflowText = overflowPart;
-            // Вызываем колбэк для обработки переполнения
-            if (overflowPart.isNotEmpty && onOverflow != null) {
-              onOverflow!(overflowPart);
-            }
-          }
-
-          // Возвращаем отформатированное значение
-          return TextEditingValue(
-            text: newText,
-            selection: TextSelection.collapsed(offset: textBefore.length + firstPart.length),
-          );
-        } else {
-          // Если совсем нет места, обрезаем весь текст до лимита
-          final String newText = fullText.substring(0, maxLength);
-          final String overflowText = fullText.substring(maxLength);
-
-          // Проверяем на дублирование
-          if (!_wasProcessed(newText, overflowText)) {
-            _lastProcessedText = newText;
-            _lastOverflowText = overflowText;
-            if (overflowText.isNotEmpty && onOverflow != null) {
-              onOverflow!(overflowText);
-            }
-          }
-
-          return TextEditingValue(
-            text: newText,
-            selection: TextSelection.collapsed(offset: Math.min(maxLength, cursorPosition)),
-          );
-        }
+      // Определяем переполнение: оставшаяся часть pastedText + весь textAfter
+      String overflowText = "";
+      if (pastedText.length > remainingSpace) {
+        overflowText = pastedText.substring(remainingSpace);
       }
-    }
+      // Добавляем textAfter только если остается место в текущем блоке
+      if (overflowText.isNotEmpty || newText.length + textAfter.length > maxLength) {
+        overflowText += textAfter;
+      } else {
+        // Если есть место для textAfter, добавляем его к newText
+        _log('Есть место для текста после курсора, добавляем его к основному блоку');
+        return TextEditingValue(
+          text: newText + textAfter,
+          selection: TextSelection.collapsed(offset: newText.length),
+        );
+      }
 
-    // Обычная обработка ограничения длины текста
-    if (newValue.text.length > maxLength) {
-      // Если просто превышен лимит (например, при обычном вводе)
-      String limitedText = newValue.text.substring(0, maxLength);
-      String overflowText = newValue.text.substring(maxLength);
-
-      // Колбэк для переполнения
-      if (overflowText.isNotEmpty && onOverflow != null) {
+      // Обрабатываем переполнение
+      if (overflowText.isNotEmpty && onOverflow != null && !_wasProcessed(newText, overflowText)) {
+        _lastProcessedText = newText;
+        _lastOverflowText = overflowText;
+        _log('Отправляем переполнение размером ${overflowText.length} символов');
         onOverflow!(overflowText);
       }
 
-      // Возвращаем обрезанный текст
       return TextEditingValue(
-        text: limitedText,
-        selection: TextSelection.collapsed(offset: Math.min(maxLength, newValue.selection.end)),
+        text: newText,
+        selection: TextSelection.collapsed(offset: newText.length),
       );
     }
 
-    // Если текст не превышает лимит, возвращаем его как есть
+    // Обычная проверка на предел длины для регулярного ввода текста
+    if (newValue.text.length > maxLength) {
+      // Ограничиваем длину текста
+      final String limitedText = newValue.text.substring(0, maxLength);
+      final String overflowText = newValue.text.substring(maxLength);
+
+      // Вызываем колбэк для переполнения
+      if (overflowText.isNotEmpty && onOverflow != null && !_wasProcessed(limitedText, overflowText)) {
+        _lastProcessedText = limitedText;
+        _lastOverflowText = overflowText;
+        onOverflow!(overflowText);
+      }
+
+      return TextEditingValue(
+        text: limitedText,
+        selection: TextSelection.collapsed(offset: Math.min(maxLength, newValue.selection.extentOffset)),
+      );
+    }
+
+    // Если длина текста не превышает maxLength, возвращаем newValue без изменений
     return newValue;
   }
 }
@@ -498,7 +467,9 @@ class _TextEditorState extends State<TextEditor> {
       return;
     }
 
-    _log('Начинаем создание новых блоков, размер переполнения: ${overflowText.length} символов');
+    _log('============================================');
+    _log('НАЧАЛО СОЗДАНИЯ НОВЫХ БЛОКОВ ИЗ ПЕРЕПОЛНЕНИЯ');
+    _log('Размер переполнения: ${overflowText.length} символов');
 
     // Получаем стиль текста в позиции курсора или используем стиль виджета
     final doc.TextStyleAttributes currentStyle =
@@ -507,76 +478,50 @@ class _TextEditorState extends State<TextEditor> {
     // Список блоков данных для создания новых текстовых блоков
     final List<TextBlockData> blockDataList = [];
 
-    // НОВАЯ ЛОГИКА: Если текст меньше лимита, создаем только один блок независимо от переносов строки
+    // БАЗОВАЯ ПРОВЕРКА: Если текст меньше лимита, создаем только один блок
     if (overflowText.length <= widget.limits.newBlockLimit) {
-      _log('Текст не превышает лимит (${overflowText.length} <= ${widget.limits.newBlockLimit}), создаем один блок');
+      _log('Текст не превышает лимит, создаем один блок');
       blockDataList.add(
         TextBlockData(text: overflowText, spans: [doc.TextSpanDocument(text: overflowText, style: currentStyle)]),
       );
+
+      _log('БЛОК: "${overflowText.length <= 20 ? overflowText : overflowText.substring(0, 20) + "..."}"');
 
       // Вызываем колбэк для создания нового блока
       Future.microtask(() {
         if (mounted && widget.onCreateNewBlocks != null) {
           widget.onCreateNewBlocks!(blockDataList);
-          _log('Создан один блок длиной ${overflowText.length} символов, не превышающий лимит');
+          _log('Создан один блок длиной ${overflowText.length} символов');
         }
       });
+      _log('КОНЕЦ СОЗДАНИЯ БЛОКОВ');
+      _log('============================================');
       return;
     }
 
-    // Для начала разбиваем текст по переносам строки
+    // НОВЫЙ УПРОЩЕННЫЙ ПОДХОД:
+    // 1. Проверяем, есть ли в тексте длинные последовательности без переносов строк
     final List<String> paragraphs = overflowText.split('\n');
-    _log('Текст разбит по символам переноса строки на ${paragraphs.length} параграфов');
+    _log('Текст разбит на ${paragraphs.length} параграфов');
 
-    // Текущий блок для объединения нескольких параграфов до достижения лимита ~10K
-    String currentBlock = '';
-
-    for (int i = 0; i < paragraphs.length; i++) {
-      final paragraph = paragraphs[i];
-
-      // Проверяем, не превысит ли текущий блок лимит при добавлении нового параграфа
-      int newLength = currentBlock.length;
-      if (currentBlock.isNotEmpty) newLength += 1; // +1 для символа переноса строки
-      newLength += paragraph.length;
-
-      if (newLength > widget.limits.newBlockLimit) {
-        // Если новый блок превысит лимит, сохраняем текущий блок
-        if (currentBlock.isNotEmpty) {
-          blockDataList.add(
-            TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: currentStyle)]),
-          );
-          _log('Создан блок длиной ${currentBlock.length} символов (близко к лимиту)');
-          currentBlock = paragraph; // Начинаем новый блок с текущего параграфа
-        } else if (paragraph.length > widget.limits.newBlockLimit) {
-          // Если сам параграф превышает лимит, разбиваем его на части
-          _splitLongParagraph(paragraph, currentStyle, blockDataList);
-        } else {
-          // Если параграф не превышает лимит, но текущий блок пустой
-          currentBlock = paragraph;
-        }
-      } else {
-        // Добавляем параграф к текущему блоку, пока не достигнем лимита
-        if (currentBlock.isNotEmpty) {
-          currentBlock += '\n' + paragraph;
-        } else {
-          currentBlock = paragraph;
-        }
-      }
+    // Если текст имеет четкую структуру параграфов (много переносов строк),
+    // используем разбиение по параграфам
+    if (paragraphs.length > 5) {
+      _log('Обнаружено много параграфов, используем разбиение по параграфам');
+      _distributeByParagraphs(paragraphs, currentStyle, blockDataList);
     }
-
-    // Добавляем последний блок, если он не пустой
-    if (currentBlock.isNotEmpty) {
-      blockDataList.add(
-        TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: currentStyle)]),
-      );
-      _log('Создан последний блок длиной ${currentBlock.length} символов');
+    // В противном случае используем простое последовательное разбиение
+    // на равные части без перемешивания
+    else {
+      _log('Мало параграфов, используем последовательное разбиение текста');
+      _splitToEqualSizedBlocks(overflowText, currentStyle, blockDataList);
     }
 
     _log('Итоговое количество блоков после разбиения: ${blockDataList.length}');
 
     // Вызываем колбэк для создания новых блоков
     if (blockDataList.isNotEmpty) {
-      _log('Создаем ${blockDataList.length} новых блоков текста');
+      _log('Вызываем колбэк для создания ${blockDataList.length} новых блоков текста');
 
       // Гарантируем, что вызов колбэка происходит в следующем цикле событий
       Future.microtask(() {
@@ -587,13 +532,173 @@ class _TextEditorState extends State<TextEditor> {
           if (widget.enableLogging) {
             for (int i = 0; i < blockDataList.length; i++) {
               final block = blockDataList[i];
-              final previewText = block.text.length > 30 ? block.text.substring(0, 30) + '...' : block.text;
-              _log('Блок #$i: длина ${block.text.length}, текст: "$previewText"');
+              final previewText = block.text.length > 20 ? block.text.substring(0, 20) + '...' : block.text;
+              _log('Блок #$i: длина ${block.text.length} символов, текст: "$previewText"');
             }
           }
         }
       });
     }
+    _log('КОНЕЦ СОЗДАНИЯ БЛОКОВ');
+    _log('============================================');
+  }
+
+  // Метод распределения по абзацам
+  void _distributeByParagraphs(List<String> paragraphs, doc.TextStyleAttributes style, List<TextBlockData> blocksList) {
+    _log('Начинаю разбиение текста по параграфам (${paragraphs.length} параграфов)');
+
+    String currentBlock = '';
+    int currentBlockSize = 0;
+
+    for (int i = 0; i < paragraphs.length; i++) {
+      final paragraph = paragraphs[i];
+      final bool isLastParagraph = i == paragraphs.length - 1;
+
+      _log('Обработка параграфа #$i длиной ${paragraph.length} символов');
+
+      // Если параграф сам по себе превышает лимит
+      if (paragraph.length > widget.limits.newBlockLimit) {
+        _log('Параграф #$i слишком большой (${paragraph.length}), сначала сохраняем текущий блок');
+
+        // Сохраняем текущий блок, если он не пустой
+        if (currentBlock.isNotEmpty) {
+          blocksList
+              .add(TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: style)]));
+          _log('Сохранен текущий блок размером $currentBlockSize символов');
+          currentBlock = '';
+          currentBlockSize = 0;
+        }
+
+        // Разбиваем длинный параграф на части
+        _log('Разбиваем длинный параграф #$i на части');
+        _splitLongParagraph(paragraph, style, blocksList);
+      }
+      // Проверяем, поместится ли параграф в текущий блок
+      else {
+        int newSize = currentBlockSize;
+        if (currentBlockSize > 0) {
+          newSize += 1; // +1 для символа переноса строки
+        }
+        newSize += paragraph.length;
+
+        _log('Проверка: текущий размер блока: $currentBlockSize + параграф: ${paragraph.length} = $newSize');
+
+        // Если не помещается, сохраняем текущий блок и начинаем новый
+        if (newSize > widget.limits.newBlockLimit) {
+          if (currentBlock.isNotEmpty) {
+            blocksList.add(
+                TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: style)]));
+            _log('Блок заполнен, сохраняем блок размером $currentBlockSize символов');
+            currentBlock = paragraph;
+            currentBlockSize = paragraph.length;
+          } else {
+            // Если текущий блок пустой (редкий случай), просто добавляем параграф как новый блок
+            currentBlock = paragraph;
+            currentBlockSize = paragraph.length;
+          }
+        }
+        // Иначе добавляем параграф к текущему блоку
+        else {
+          if (currentBlock.isNotEmpty) {
+            currentBlock += '\n' + paragraph;
+            currentBlockSize = newSize;
+          } else {
+            currentBlock = paragraph;
+            currentBlockSize = paragraph.length;
+          }
+          _log('Добавлен параграф к текущему блоку, новый размер: $currentBlockSize символов');
+        }
+
+        // Если это последний параграф, добавляем оставшийся блок
+        if (isLastParagraph && currentBlock.isNotEmpty) {
+          blocksList
+              .add(TextBlockData(text: currentBlock, spans: [doc.TextSpanDocument(text: currentBlock, style: style)]));
+          _log('Добавлен последний блок размером $currentBlockSize символов');
+          currentBlock = '';
+          currentBlockSize = 0;
+        }
+      }
+    }
+
+    _log('Завершено разбиение по параграфам, всего создано ${blocksList.length} блоков');
+  }
+
+  // Новый метод: разбивка на равные блоки без учета переносов строки
+  void _splitToEqualSizedBlocks(String text, doc.TextStyleAttributes style, List<TextBlockData> blocksList) {
+    _log('Начинаем разбиение текста на равные блоки, длина текста: ${text.length}');
+
+    // Отслеживаем текущую позицию в тексте
+    int currentPosition = 0;
+
+    // Пока не обработали весь текст
+    while (currentPosition < text.length) {
+      // Определяем размер оставшегося текста
+      final remainingTextLength = text.length - currentPosition;
+      _log('Позиция $currentPosition, осталось обработать $remainingTextLength символов');
+
+      // Если оставшийся текст меньше лимита, создаем последний блок
+      if (remainingTextLength <= widget.limits.newBlockLimit) {
+        final String lastChunk = text.substring(currentPosition);
+        _log('Остаток текста не превышает лимит, создаем последний блок размером ${lastChunk.length}');
+
+        if (!lastChunk.isEmpty) {
+          blocksList.add(
+            TextBlockData(
+              text: lastChunk,
+              spans: [doc.TextSpanDocument(text: lastChunk, style: style)],
+            ),
+          );
+          _log('Добавлен последний блок: "${lastChunk.length <= 20 ? lastChunk : lastChunk.substring(0, 20) + "..."}"');
+        }
+
+        // Завершаем обработку
+        break;
+      }
+
+      // Вычисляем оптимальный размер текущего блока (не превышая лимит)
+      int chunkSize = widget.limits.newBlockLimit;
+      int breakPoint = currentPosition + chunkSize;
+
+      // Находим подходящее место для разрыва (конец строки или пробел)
+      if (breakPoint < text.length) {
+        // Сначала проверяем на наличие символа новой строки
+        int newlinePos = text.lastIndexOf('\n', breakPoint);
+        if (newlinePos > currentPosition && newlinePos <= breakPoint) {
+          // Найден символ новой строки в пределах блока
+          breakPoint = newlinePos + 1; // +1 чтобы включить символ новой строки
+        } else {
+          // Если нет новой строки, ищем пробел
+          int spacePos = text.lastIndexOf(' ', breakPoint);
+          if (spacePos > currentPosition && spacePos <= breakPoint) {
+            breakPoint = spacePos + 1; // +1 чтобы включить пробел
+          }
+        }
+      }
+
+      // Если не нашли подходящее место для разрыва, просто используем максимальный размер
+      if (breakPoint <= currentPosition) {
+        breakPoint = Math.min(currentPosition + chunkSize, text.length);
+      }
+
+      // Создаем блок из текущего фрагмента
+      final String chunk = text.substring(currentPosition, breakPoint);
+
+      if (!chunk.isEmpty) {
+        blocksList.add(
+          TextBlockData(
+            text: chunk,
+            spans: [doc.TextSpanDocument(text: chunk, style: style)],
+          ),
+        );
+        _log(
+            'Добавлен блок размером ${chunk.length}: "${chunk.length <= 20 ? chunk : chunk.substring(0, 20) + "..."}"');
+      }
+
+      // Переходим к следующей позиции
+      currentPosition = breakPoint;
+    }
+
+    _log('Завершено разбиение на блоки, создано ${blocksList.length} блоков');
   }
 
   // Вспомогательный метод для разбиения длинного параграфа на части
