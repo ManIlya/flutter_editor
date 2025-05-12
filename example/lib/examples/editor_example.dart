@@ -251,6 +251,8 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
                     print('Нажатие на изображение: $imageUrl');
                     // Здесь можно реализовать нужный функционал
                   },
+                  disableFloatOnNarrowScreens: true, // Отключить обтекание текстом на узких экранах
+                  narrowScreenThreshold: 600, // Пороговое значение ширины (в пикселях)
                 ),
         ),
       ),
@@ -299,6 +301,8 @@ class _EditorExampleScreenState extends State<EditorExampleScreen> {
 ///      onImageTap: (imageUrl, imageElement) {
 ///        // Обработка нажатия на изображение
 ///      },
+///      disableFloatOnNarrowScreens: true, // Отключить обтекание на узких экранах
+///      narrowScreenThreshold: 600, // Пороговое значение ширины (px)
 ///    )
 ///    ```
 /// 

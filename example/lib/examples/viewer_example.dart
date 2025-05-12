@@ -76,6 +76,8 @@ class ViewerExampleScreen extends StatelessWidget {
               // - Скачать изображение
               // - Поделиться изображением и т.д.
             },
+            disableFloatOnNarrowScreens: true, // Отключить обтекание текстом на узких экранах
+            narrowScreenThreshold: 600, // Пороговое значение ширины (в пикселях)
           ),
         ),
       ),
@@ -159,6 +161,8 @@ class ViewerExampleScreen extends StatelessWidget {
 ///      onImageTap: (imageUrl, imageElement) {
 ///        // Обработка нажатия на изображение
 ///      },
+///      disableFloatOnNarrowScreens: true, // Отключить обтекание текстом на узких экранах
+///      narrowScreenThreshold: 600, // Пороговое значение ширины экрана (в пикселях)
 ///    )
 ///    ```
 ///

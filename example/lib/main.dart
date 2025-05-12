@@ -341,6 +341,8 @@ class _EditorPageState extends State<EditorPage> {
                       print('Нажатие на изображение: $imageUrl');
                       // Можно показать диалог, открыть изображение во внешнем приложении и т.д.
                     },
+                    disableFloatOnNarrowScreens: true, // Отключить обтекание текстом на узких экранах
+                    narrowScreenThreshold: 600, // Пороговое значение ширины (в пикселях)
                   ),
                 ),
               ),

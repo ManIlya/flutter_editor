@@ -238,6 +238,8 @@ class _FormatConversionExampleState extends State<FormatConversionExample> {
                                     // Обработка нажатия на изображение
                                     print('Нажатие на изображение: $imageUrl');
                                   },
+                                  disableFloatOnNarrowScreens: true,
+                                  narrowScreenThreshold: 600,
                                 ),
                               ],
                             ),

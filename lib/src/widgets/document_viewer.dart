@@ -14,12 +14,20 @@ class DocumentViewer extends StatelessWidget {
   /// Колбек для обработки нажатия на изображение
   final Function(String imageUrl, doc.ImageElement imageElement)? onImageTap;
 
+  /// Флаг отключения обтекания текстом на узких экранах
+  final bool disableFloatOnNarrowScreens;
+
+  /// Ширина экрана, при которой считаем его узким (в пикселях)
+  final double narrowScreenThreshold;
+
   const DocumentViewer({
     super.key,
     required this.document,
     this.enableLogging = false,
     this.enableFirstLineIndent = true, // По умолчанию отступы включены
     this.onImageTap,
+    this.disableFloatOnNarrowScreens = true, // По умолчанию отключаем float на узких экранах
+    this.narrowScreenThreshold = 600, // По умолчанию считаем узким экран уже 600px
   });
 
   @override
@@ -86,6 +94,7 @@ class DocumentViewer extends StatelessWidget {
   List<Widget> _buildDocumentElements(BuildContext context, BoxConstraints constraints) {
     final List<Widget> elements = [];
     final editorTheme = EditorThemeExtension.of(context);
+    final bool isNarrowScreen = disableFloatOnNarrowScreens && constraints.maxWidth < narrowScreenThreshold;
 
     for (int i = 0; i < document.elements.length; i++) {
       final element = document.elements[i];
@@ -181,9 +190,9 @@ class DocumentViewer extends StatelessWidget {
         // Определяем float на основе выравнивания
         FCFloat float;
         if (element.alignment == Alignment.centerLeft)
-          float = FCFloat.start;
+          float = isNarrowScreen ? FCFloat.none : FCFloat.start;
         else if (element.alignment == Alignment.centerRight)
-          float = FCFloat.end;
+          float = isNarrowScreen ? FCFloat.none : FCFloat.end;
         else
           float = FCFloat.none;
 
@@ -198,7 +207,7 @@ class DocumentViewer extends StatelessWidget {
         }
 
         // Добавляем изображение как Floatable
-        final percentSize = _calculateMaxWidthPercentage(element, float);
+        final percentSize = _calculateMaxWidthPercentage(element, float, isNarrowScreen);
         final pictureSize = constraints.maxWidth * percentSize;
 
         // Создаем виджет в зависимости от типа float
@@ -326,11 +335,11 @@ class DocumentViewer extends StatelessWidget {
   }
 
   // Рассчитывает maxWidthPercentage для Floatable в зависимости от типа размера изображения
-  double _calculateMaxWidthPercentage(doc.ImageElement imageElement, FCFloat float) {
-    // Если изображение выровнено по центру (нет обтекания), используем всю ширину
-    // if (float == FCFloat.none) {
-    //   return 1.0;
-    // }
+  double _calculateMaxWidthPercentage(doc.ImageElement imageElement, FCFloat float, bool isNarrowScreen) {
+    // Если экран узкий и включена соответствующая опция, используем полную ширину
+    if (isNarrowScreen) {
+      return 1.0;
+    }
 
     // Для процента от экрана используем точное значение, указанное пользователем
     // Преобразуем процент (0-100) в долю (0.0-1.0)

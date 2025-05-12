@@ -10,12 +10,20 @@ class DocumentPreviewScreen extends StatelessWidget {
   /// Колбек для обработки нажатия на изображение
   final Function(String imageUrl, ImageElement imageElement)? onImageTap;
 
+  /// Флаг отключения обтекания текстом на узких экранах
+  final bool disableFloatOnNarrowScreens;
+
+  /// Ширина экрана, при которой считаем его узким (в пикселях)
+  final double narrowScreenThreshold;
+
   const DocumentPreviewScreen({
     super.key,
     required this.document,
     this.onEditPressed,
     this.enableLogging = false,
     this.onImageTap,
+    this.disableFloatOnNarrowScreens = true,
+    this.narrowScreenThreshold = 600,
   });
 
   @override
@@ -35,6 +43,8 @@ class DocumentPreviewScreen extends StatelessWidget {
             document: document,
             enableLogging: enableLogging,
             onImageTap: onImageTap,
+            disableFloatOnNarrowScreens: disableFloatOnNarrowScreens,
+            narrowScreenThreshold: narrowScreenThreshold,
           ),
         ),
       ),
