@@ -2227,19 +2227,162 @@ class StyledTextEditingController extends TextEditingController {
     _log('Новый текст: "$newText"');
     _log('Позиция курсора: ${currentSelection.baseOffset}');
 
-    // Определяем тип изменения и позицию курсора
-    final cursorPosition = currentSelection.baseOffset;
+    // Найдем общий префикс и суффикс
+    int commonPrefixLength = 0;
+    int minLength = Math.min(oldText.length, newText.length);
+    while (commonPrefixLength < minLength && oldText[commonPrefixLength] == newText[commonPrefixLength]) {
+      commonPrefixLength++;
+    }
+
+    int commonSuffixLength = 0;
+    while (commonSuffixLength < minLength - commonPrefixLength &&
+        oldText[oldText.length - 1 - commonSuffixLength] == newText[newText.length - 1 - commonSuffixLength]) {
+      commonSuffixLength++;
+    }
+
+    // Определяем границы измененной области
+    final replaceStartOld = commonPrefixLength;
+    final replaceEndOld = oldText.length - commonSuffixLength;
+    final replaceStartNew = commonPrefixLength;
+    final replaceEndNew = newText.length - commonSuffixLength;
+
+    // Определяем тип изменения
+    final bool hasReplacement = replaceStartOld < replaceEndOld && replaceStartNew < replaceEndNew;
     final isAddition = newText.length > oldText.length;
     final isDeletion = newText.length < oldText.length;
+    final isReplacement = hasReplacement && replaceStartOld != replaceEndOld && replaceStartNew != replaceEndNew;
 
-    if (isAddition) {
+    _log(
+        'Границы изменения: старый [${replaceStartOld}-${replaceEndOld}], новый [${replaceStartNew}-${replaceEndNew}]');
+
+    if (isReplacement) {
+      _log('🔄 Обнаружена замена текста.');
+      _log('Замена текста в позиции $replaceStartOld');
+      _log('Старый текст: "${oldText.substring(replaceStartOld, replaceEndOld)}"');
+      _log('Новый текст: "${newText.substring(replaceStartNew, replaceEndNew)}"');
+
+      // Получим стиль в месте замены
+      doc.TextStyleAttributes? styleAtReplace;
+
+      // Текущая позиция в тексте
+      int currentPosition = 0;
+
+      // Создаем новые spans
+      List<doc.TextSpanDocument> newSpans = [];
+
+      for (int i = 0; i < oldSpans.length; i++) {
+        final span = oldSpans[i];
+        final spanStart = currentPosition;
+        final spanEnd = spanStart + span.text.length;
+
+        _log('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+
+        // Спан полностью до замены
+        if (spanEnd <= replaceStartOld) {
+          newSpans.add(span);
+          _log('Спан до замены, добавляем без изменений');
+        }
+        // Спан полностью после замены
+        else if (spanStart >= replaceEndOld) {
+          // Сдвигаем позицию с учетом разницы длин
+          int offset = replaceEndNew - replaceEndOld;
+          newSpans.add(doc.TextSpanDocument(text: span.text, style: span.style));
+          _log('Спан после замены, добавляем без изменений');
+        }
+        // Спан пересекается с заменой
+        else {
+          // Если спан начинается до замены
+          if (spanStart < replaceStartOld) {
+            // Часть до замены
+            final beforeText = span.text.substring(0, replaceStartOld - spanStart);
+            if (beforeText.isNotEmpty) {
+              newSpans.add(doc.TextSpanDocument(text: beforeText, style: span.style));
+              _log('Добавлена часть спана до замены: "$beforeText"');
+            }
+
+            // Запоминаем стиль для замены
+            styleAtReplace = span.style;
+          }
+
+          // Если спан заканчивается после замены
+          if (spanEnd > replaceEndOld) {
+            // Часть после замены
+            final afterText = span.text.substring(replaceEndOld - spanStart);
+            if (afterText.isNotEmpty) {
+              newSpans.add(doc.TextSpanDocument(text: afterText, style: span.style));
+              _log('Добавлена часть спана после замены: "$afterText"');
+            }
+
+            // Если еще не определили стиль для замены
+            if (styleAtReplace == null) {
+              styleAtReplace = span.style;
+            }
+          }
+
+          // Если это спан, полностью внутри которого происходит замена
+          if (spanStart <= replaceStartOld && spanEnd >= replaceEndOld) {
+            styleAtReplace = span.style;
+          }
+        }
+
+        currentPosition = spanEnd;
+      }
+
+      // Добавляем замененный текст, используя сохраненный стиль
+      if (styleAtReplace != null) {
+        // Вставляем новый текст в правильное место в списке spans
+        int insertIndex = 0;
+        for (int i = 0; i < newSpans.length; i++) {
+          int spanEnd = 0;
+          for (int j = 0; j <= i; j++) {
+            spanEnd += newSpans[j].text.length;
+          }
+          if (spanEnd >= replaceStartNew) {
+            insertIndex = i + 1;
+            break;
+          }
+        }
+
+        final newContent = newText.substring(replaceStartNew, replaceEndNew);
+        if (newContent.isNotEmpty) {
+          newSpans.insert(insertIndex, doc.TextSpanDocument(text: newContent, style: styleAtReplace));
+          _log('Добавлен новый текст с сохраненным стилем: "$newContent"');
+        } else {
+          _log('Новый текст пустой, не добавляем спан');
+        }
+      } else {
+        _log('⚠️ Не удалось определить стиль для замены');
+        // Используем стиль первого спана как запасной вариант
+        final style = oldSpans[0].style;
+        return [doc.TextSpanDocument(text: newText, style: style)];
+      }
+
+      // Проверяем, что весь текст покрыт спанами
+      String reconstructedText = newSpans.map((s) => s.text).join();
+      if (reconstructedText != newText) {
+        _log('⚠️ Реконструированный текст не соответствует новому тексту');
+        _log('Реконструированный: "$reconstructedText"');
+        _log('Новый: "$newText"');
+
+        // Создаем новый спан с правильным текстом и стилем
+        final style = oldSpans[0].style;
+        return [doc.TextSpanDocument(text: newText, style: style)];
+      }
+
+      // Объединяем соседние спаны с одинаковым стилем
+      final result = _mergeAdjacentSpans(newSpans);
+      _log('Объединены смежные спаны с одинаковым стилем. Финальное количество: ${result.length}');
+      _log('════════════════════════════════════════════');
+      return result;
+    } else if (isAddition) {
       _log('➕ Обнаружено добавление текста.');
-      // Найдем точку вставки
-      int insertPos = cursorPosition - (newText.length - oldText.length);
-      if (insertPos < 0) insertPos = 0;
+      // Вычисляем позицию вставки по общему префиксу
+      final insertPos = replaceStartOld;
+      final addedText = newText.substring(replaceStartNew, replaceEndNew);
 
       _log('Позиция вставки: $insertPos');
-      _log('Добавлено символов: ${newText.length - oldText.length}');
+      _log('Добавлено символов: ${addedText.length}');
+      _log('Добавленный текст: "$addedText"');
 
       // Получим стиль в позиции вставки
       doc.TextStyleAttributes? styleAtInsert;
@@ -2255,7 +2398,7 @@ class StyledTextEditingController extends TextEditingController {
         final spanStart = spanStartPos;
         final spanEnd = spanStart + span.text.length;
 
-        _log('Обработка спана #$i: "$span.text" позиция [$spanStart-$spanEnd]');
+        _log('Обработка спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
 
         // Проверяем, находится ли позиция вставки точно на границе между спанами
         bool isAtBoundary = insertPos == spanEnd && i < oldSpans.length - 1;
@@ -2268,11 +2411,6 @@ class StyledTextEditingController extends TextEditingController {
           _log(
             'Стиль для новых символов: bold=${styleAtInsert.bold}, italic=${styleAtInsert.italic}, fontSize=${styleAtInsert.fontSize}',
           );
-
-          // Вычисляем добавленный текст
-          final addedLength = newText.length - oldText.length;
-          final addedText = newText.substring(insertPos, insertPos + addedLength);
-          _log('Добавленный текст: "$addedText"');
 
           // Разделяем спан на части
           final beforeInsert = span.text.substring(0, insertPos - spanStart);
@@ -2332,28 +2470,8 @@ class StyledTextEditingController extends TextEditingController {
       _log('➖ Обнаружено удаление текста.');
       _log('Удалено символов: ${oldText.length - newText.length}');
 
-      // Более точный алгоритм обнаружения места удаления
-      int deleteStartOffset = -1;
-      int deleteLength = oldText.length - newText.length;
-
-      // Найдем общий префикс
-      int commonPrefixLength = 0;
-      int minLength = Math.min(oldText.length, newText.length);
-      while (commonPrefixLength < minLength && oldText[commonPrefixLength] == newText[commonPrefixLength]) {
-        commonPrefixLength++;
-      }
-
-      // Найдем общий суффикс, но только если есть общий префикс
-      int commonSuffixLength = 0;
-      if (commonPrefixLength < minLength) {
-        while (commonSuffixLength < minLength - commonPrefixLength &&
-            oldText[oldText.length - 1 - commonSuffixLength] == newText[newText.length - 1 - commonSuffixLength]) {
-          commonSuffixLength++;
-        }
-      }
-
-      // Определяем место удаления
-      deleteStartOffset = commonPrefixLength;
+      final deleteStartOffset = replaceStartOld;
+      final deleteLength = replaceEndOld - replaceStartOld;
 
       _log('Обнаружено удаление в позиции $deleteStartOffset длиной $deleteLength');
       _log('Общий префикс длиной $commonPrefixLength, общий суффикс длиной $commonSuffixLength');
@@ -2528,8 +2646,135 @@ class StyledTextEditingController extends TextEditingController {
     }
 
     _log('⚠️ Не удалось определить тип изменения текста. Создаем один спан.');
-    // Если не удалось определить тип изменения, сохраняем хотя бы стиль
-    final style = oldSpans[0].style;
+
+    // Проверяем наличие общих фрагментов текста
+    if (commonPrefixLength > 0 || commonSuffixLength > 0) {
+      _log(
+          'Найден общий префикс длиной ${commonPrefixLength} символов и суффикс длиной ${commonSuffixLength} символов');
+      _log(
+          'Границы изменения: старый [${replaceStartOld}-${replaceEndOld}], новый [${replaceStartNew}-${replaceEndNew}]');
+
+      // Попробуем сохранить хотя бы структуру спанов до/после изменения
+      List<doc.TextSpanDocument> newSpans = [];
+      int currentPosition = 0;
+
+      // Сохраняем спаны до изменения
+      for (final span in oldSpans) {
+        final spanStart = currentPosition;
+        final spanEnd = spanStart + span.text.length;
+
+        if (spanEnd <= replaceStartOld) {
+          // Спан до изменения, сохраняем как есть
+          newSpans.add(span);
+          _log('Сохранен спан до изменения: "${span.text}"');
+        } else {
+          // Достигли области изменения, прекращаем копирование
+          break;
+        }
+
+        currentPosition = spanEnd;
+      }
+
+      // Используем стиль первого спана для нового текста
+      final style = oldSpans.isNotEmpty ? oldSpans[0].style : doc.TextStyleAttributes();
+
+      // Добавляем новый текст
+      final newContent = newText.substring(replaceStartNew, replaceEndNew);
+      if (newContent.isNotEmpty) {
+        newSpans.add(doc.TextSpanDocument(text: newContent, style: style));
+        _log('Добавлен измененный текст со стилем первого спана: "$newContent"');
+      }
+
+      // Сохраняем спаны после изменения
+      int oldPosition = 0;
+      bool foundAfterReplacement = false;
+
+      for (final span in oldSpans) {
+        final spanStart = oldPosition;
+        final spanEnd = spanStart + span.text.length;
+
+        if (spanStart >= replaceEndOld) {
+          // Спан после изменения
+          // Нужно создать новый спан с тем же содержимым и стилем,
+          // но адаптированный к новым координатам
+          final newSpanText = span.text;
+          newSpans.add(doc.TextSpanDocument(text: newSpanText, style: span.style));
+          foundAfterReplacement = true;
+          _log('Сохранен спан после изменения: "${span.text}"');
+        } else if (spanEnd > replaceEndOld) {
+          // Спан частично попадает в область после изменения
+          final remainingText = span.text.substring(replaceEndOld - spanStart);
+          if (remainingText.isNotEmpty) {
+            newSpans.add(doc.TextSpanDocument(text: remainingText, style: span.style));
+            foundAfterReplacement = true;
+            _log('Сохранена часть спана после изменения: "$remainingText"');
+          }
+        }
+
+        oldPosition = spanEnd;
+      }
+
+      // Проверяем, что есть хотя бы один спан
+      if (newSpans.isEmpty) {
+        _log('⚠️ Нет созданных спанов, используем запасной вариант.');
+        return [doc.TextSpanDocument(text: newText, style: style)];
+      }
+
+      // Проверяем, что созданные спаны полностью покрывают новый текст
+      String reconstructedText = newSpans.map((s) => s.text).join();
+      if (reconstructedText != newText) {
+        _log('⚠️ Реконструированный текст не соответствует новому тексту: ');
+        _log('  Ожидается: "$newText" (${newText.length} символов)');
+        _log('  Получено: "$reconstructedText" (${reconstructedText.length} символов)');
+
+        // Попробуем найти и исправить ошибку
+        if (reconstructedText.length < newText.length) {
+          // Не хватает текста
+          final missingText = newText.substring(reconstructedText.length);
+          _log('  Не хватает текста: "$missingText"');
+          newSpans
+              .add(doc.TextSpanDocument(text: missingText, style: oldSpans.isNotEmpty ? oldSpans.last.style : style));
+          _log('  Добавлен недостающий текст.');
+        } else if (reconstructedText.length > newText.length) {
+          // Лишний текст - создаем новый набор спанов
+          _log('  Обнаружен лишний текст. Создаем новый набор спанов.');
+          return [doc.TextSpanDocument(text: newText, style: style)];
+        }
+      }
+
+      // Объединяем соседние спаны с одинаковым стилем
+      if (newSpans.length > 1) {
+        List<doc.TextSpanDocument> mergedSpans = [];
+        doc.TextSpanDocument? currentSpan;
+
+        for (final span in newSpans) {
+          if (currentSpan == null) {
+            currentSpan = span;
+          } else if (_areStylesEqual(currentSpan.style, span.style)) {
+            // Объединяем с текущим спаном
+            currentSpan = doc.TextSpanDocument(text: currentSpan.text + span.text, style: currentSpan.style);
+          } else {
+            // Разные стили, добавляем текущий и начинаем новый
+            mergedSpans.add(currentSpan);
+            currentSpan = span;
+          }
+        }
+
+        // Добавляем последний обрабатываемый спан
+        if (currentSpan != null) {
+          mergedSpans.add(currentSpan);
+        }
+
+        if (mergedSpans.length < newSpans.length) {
+          _log('Объединены ${newSpans.length - mergedSpans.length} соседних спанов с одинаковым стилем.');
+          newSpans = mergedSpans;
+        }
+      }
+    }
+
+    // Если не удалось определить тип изменения и нет общих частей, создаем один спан
+    final style = oldSpans.isNotEmpty ? oldSpans[0].style : doc.TextStyleAttributes();
+    _log('Создаем один спан с полным текстом, сохраняя стиль первого спана');
     return [doc.TextSpanDocument(text: newText, style: style)];
   }
 
@@ -2591,13 +2836,15 @@ class StyledTextEditingController extends TextEditingController {
   }
 
   // Проверяет, одинаковые ли стили
-  bool _areStylesEqual(doc.TextStyleAttributes a, doc.TextStyleAttributes b) {
-    return a.bold == b.bold &&
-        a.italic == b.italic &&
-        a.underline == b.underline &&
-        a.link == b.link &&
-        a.fontSize == b.fontSize &&
-        a.alignment == b.alignment;
+  bool _areStylesEqual(doc.TextStyleAttributes style1, doc.TextStyleAttributes style2) {
+    // Проверяем только существующие свойства
+    return style1.bold == style2.bold &&
+        style1.italic == style2.italic &&
+        style1.underline == style2.underline &&
+        style1.color == style2.color &&
+        style1.fontSize == style2.fontSize &&
+        style1.link == style2.link &&
+        style1.alignment == style2.alignment;
   }
 
   @override
