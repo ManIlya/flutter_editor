@@ -757,8 +757,7 @@ class _CustomEditorState extends State<CustomEditor> {
                   _currentImageFloat = FCFloat.start;
                 else if (index == 1)
                   _currentImageFloat = FCFloat.none;
-                else if (index == 2)
-                  _currentImageFloat = FCFloat.end;
+                else if (index == 2) _currentImageFloat = FCFloat.end;
 
                 // Обновляем положение текущего выбранного изображения
                 if (_selectedIndex != null && _document.elements[_selectedIndex!] is ImageElement) {
@@ -813,9 +812,8 @@ class _CustomEditorState extends State<CustomEditor> {
     return ReorderableListView.builder(
       buildDefaultDragHandles: false, // Отключаем скролл внутри ListView
       itemCount: documentBlocks.length,
-      itemBuilder:
-          (context, index) =>
-              Container(key: ValueKey('$index'), padding: EdgeInsets.only(bottom: 16), child: documentBlocks[index]),
+      itemBuilder: (context, index) =>
+          Container(key: ValueKey('$index'), padding: EdgeInsets.only(bottom: 16), child: documentBlocks[index]),
       proxyDecorator: (child, index, animation) {
         return AnimatedBuilder(
           animation: animation,
@@ -1006,30 +1004,9 @@ class _CustomEditorState extends State<CustomEditor> {
               float: float,
               padding: padding,
               maxWidthPercentage: _calculateMaxWidthPercentage(element, float),
-              child:
-                  float == FCFloat.none
-                      ? Center(
-                        child: ImageEditor(
-                          imageElement: element,
-                          isSelected: isSelected,
-                          onTap: () {
-                            setState(() {
-                              _selectedIndex = index;
-
-                              // Обновляем текущий float для панели инструментов
-                              if (element.alignment == Alignment.centerLeft)
-                                _currentImageFloat = FCFloat.start;
-                              else if (element.alignment == Alignment.centerRight)
-                                _currentImageFloat = FCFloat.end;
-                              else
-                                _currentImageFloat = FCFloat.none;
-                            });
-                          },
-                          onImageChanged: (newImage) => _updateImageElement(index, newImage),
-                          onDelete: () => _removeElement(index),
-                        ),
-                      )
-                      : ImageEditor(
+              child: float == FCFloat.none
+                  ? Center(
+                      child: ImageEditor(
                         imageElement: element,
                         isSelected: isSelected,
                         onTap: () {
@@ -1048,6 +1025,26 @@ class _CustomEditorState extends State<CustomEditor> {
                         onImageChanged: (newImage) => _updateImageElement(index, newImage),
                         onDelete: () => _removeElement(index),
                       ),
+                    )
+                  : ImageEditor(
+                      imageElement: element,
+                      isSelected: isSelected,
+                      onTap: () {
+                        setState(() {
+                          _selectedIndex = index;
+
+                          // Обновляем текущий float для панели инструментов
+                          if (element.alignment == Alignment.centerLeft)
+                            _currentImageFloat = FCFloat.start;
+                          else if (element.alignment == Alignment.centerRight)
+                            _currentImageFloat = FCFloat.end;
+                          else
+                            _currentImageFloat = FCFloat.none;
+                        });
+                      },
+                      onImageChanged: (newImage) => _updateImageElement(index, newImage),
+                      onDelete: () => _removeElement(index),
+                    ),
             ),
           ),
           // Рукоятка для перетаскивания
@@ -1164,30 +1161,9 @@ class _CustomEditorState extends State<CustomEditor> {
                   borderRadius: editorTheme.containerBorderRadius,
                   color: _selectedIndex == i ? editorTheme.selectedBackgroundColor : Colors.transparent,
                 ),
-                child:
-                    float == FCFloat.none
-                        ? Center(
-                          child: ImageEditor(
-                            imageElement: element,
-                            isSelected: _selectedIndex == i,
-                            onTap: () {
-                              setState(() {
-                                _selectedIndex = i;
-
-                                // Обновляем текущий float для панели инструментов
-                                if (element.alignment == Alignment.centerLeft)
-                                  _currentImageFloat = FCFloat.start;
-                                else if (element.alignment == Alignment.centerRight)
-                                  _currentImageFloat = FCFloat.end;
-                                else
-                                  _currentImageFloat = FCFloat.none;
-                              });
-                            },
-                            onImageChanged: (newImage) => _updateImageElement(i, newImage),
-                            onDelete: () => _removeElement(i),
-                          ),
-                        )
-                        : ImageEditor(
+                child: float == FCFloat.none
+                    ? Center(
+                        child: ImageEditor(
                           imageElement: element,
                           isSelected: _selectedIndex == i,
                           onTap: () {
@@ -1206,6 +1182,26 @@ class _CustomEditorState extends State<CustomEditor> {
                           onImageChanged: (newImage) => _updateImageElement(i, newImage),
                           onDelete: () => _removeElement(i),
                         ),
+                      )
+                    : ImageEditor(
+                        imageElement: element,
+                        isSelected: _selectedIndex == i,
+                        onTap: () {
+                          setState(() {
+                            _selectedIndex = i;
+
+                            // Обновляем текущий float для панели инструментов
+                            if (element.alignment == Alignment.centerLeft)
+                              _currentImageFloat = FCFloat.start;
+                            else if (element.alignment == Alignment.centerRight)
+                              _currentImageFloat = FCFloat.end;
+                            else
+                              _currentImageFloat = FCFloat.none;
+                          });
+                        },
+                        onImageChanged: (newImage) => _updateImageElement(i, newImage),
+                        onDelete: () => _removeElement(i),
+                      ),
               ),
             ),
           ),
@@ -1299,11 +1295,87 @@ class _CustomEditorState extends State<CustomEditor> {
       currentStyle = (_document.elements[_selectedIndex!] as TextElement).style;
     }
 
-    // Создаем новый текстовый блок с переполненным текстом
-    _createNewTextBlock(overflowText, currentStyle);
+    // Если размер текста меньше 9500 символов, создаем один блок независимо от наличия переносов строк
+    if (overflowText.length < 9500) {
+      _createNewTextBlock(overflowText, currentStyle);
+      if (widget.enableLogging) {
+        print('Создан единичный блок для текста длиной ${overflowText.length} символов (<9500)');
+      }
+      return;
+    }
 
-    if (widget.enableLogging) {
-      print('Создан новый блок для переполненного текста');
+    // Для больших текстов проверяем наличие параграфов
+    final paragraphs = overflowText.split('\n');
+    if (paragraphs.length > 1) {
+      if (widget.enableLogging) {
+        print('Обнаружено ${paragraphs.length} параграфов в переполнении');
+      }
+
+      // Создаем один крупный блок текста, объединяя параграфы до достижения оптимального размера ~10K
+      int currentBlockLength = 0;
+      String currentBlock = '';
+      final int blockSizeLimit = 9500; // Стремимся к ~10K на блок
+
+      for (int i = 0; i < paragraphs.length; i++) {
+        final paragraph = paragraphs[i];
+
+        // Если параграф сам по себе больше лимита, создаем для него отдельный блок
+        if (paragraph.length > blockSizeLimit) {
+          // Сначала сохраняем накопленный блок, если он не пустой
+          if (currentBlock.isNotEmpty) {
+            _createNewTextBlock(currentBlock, currentStyle);
+            if (widget.enableLogging) {
+              print('Создан блок длиной ${currentBlock.length} символов');
+            }
+            currentBlock = '';
+            currentBlockLength = 0;
+          }
+
+          // Затем создаем отдельный блок для большого параграфа
+          _createNewTextBlock(paragraph, currentStyle);
+          if (widget.enableLogging) {
+            print('Создан блок из большого параграфа длиной ${paragraph.length} символов');
+          }
+        } else {
+          // Будущий размер блока при добавлении этого параграфа
+          int futureBlockLength = currentBlockLength;
+          if (currentBlockLength > 0) futureBlockLength += 1; // +1 для символа переноса строки
+          futureBlockLength += paragraph.length;
+
+          // Если при добавлении параграфа блок превысит лимит, сохраняем текущий и начинаем новый
+          if (futureBlockLength > blockSizeLimit && currentBlock.isNotEmpty) {
+            _createNewTextBlock(currentBlock, currentStyle);
+            if (widget.enableLogging) {
+              print('Создан блок длиной ${currentBlock.length} символов (достиг лимита)');
+            }
+            currentBlock = paragraph;
+            currentBlockLength = paragraph.length;
+          } else {
+            // Иначе добавляем параграф к текущему блоку
+            if (currentBlock.isNotEmpty) {
+              currentBlock += '\n' + paragraph;
+              currentBlockLength += 1 + paragraph.length;
+            } else {
+              currentBlock = paragraph;
+              currentBlockLength = paragraph.length;
+            }
+          }
+        }
+      }
+
+      // Создаем блок из оставшегося текста, если он есть
+      if (currentBlock.isNotEmpty) {
+        _createNewTextBlock(currentBlock, currentStyle);
+        if (widget.enableLogging) {
+          print('Создан последний блок длиной ${currentBlock.length} символов');
+        }
+      }
+    } else {
+      // Если текст не содержит переносов строк, создаем один блок
+      _createNewTextBlock(overflowText, currentStyle);
+      if (widget.enableLogging) {
+        print('Создан единичный блок для переполнения длиной ${overflowText.length} символов');
+      }
     }
   }
 }
