@@ -73,8 +73,33 @@ class LimitedLengthTextInputFormatter extends TextInputFormatter {
 
         // Если текст превышает максимальный размер, обрезаем его
         if (newValue.text.length > maxLength) {
-          final String limitedText = newValue.text.substring(0, maxLength);
-          final String overflowText = newValue.text.substring(maxLength);
+          // Находим последний пробел до maxLength
+          int breakPos = maxLength;
+
+          // Ищем ближайший символ переноса строки до maxLength
+          int newlinePos = newValue.text.lastIndexOf('\n', maxLength);
+          if (newlinePos >= 0) {
+            breakPos = newlinePos + 1; // +1 чтобы включить \n
+          }
+          // Если не нашли символ переноса, пробуем найти пробел
+          else {
+            // Ищем ближайший пробел до maxLength
+            int spacePos = maxLength;
+            while (spacePos > 0 && newValue.text[spacePos - 1] != ' ') {
+              spacePos--;
+            }
+
+            // Если нашли пробел достаточно близко, используем его
+            if (spacePos > maxLength - 30 && spacePos > 0) {
+              breakPos = spacePos;
+            } else {
+              // Иначе просто используем maxLength
+              breakPos = maxLength;
+            }
+          }
+
+          final String limitedText = newValue.text.substring(0, breakPos);
+          final String overflowText = newValue.text.substring(breakPos);
 
           // Вызываем колбэк для переполнения
           if (overflowText.isNotEmpty && onOverflow != null) {
@@ -153,19 +178,60 @@ class LimitedLengthTextInputFormatter extends TextInputFormatter {
       // Определяем переполнение: оставшаяся часть pastedText + весь textAfter
       String overflowText = "";
       if (pastedText.length > remainingSpace) {
-        overflowText = pastedText.substring(remainingSpace);
+        // Ищем пробел в районе точки разделения текста
+        int breakPos = Math.min(remainingSpace, pastedText.length);
+        // Если можем найти ближайший пробел для лучшего разделения
+        if (breakPos > 0 && breakPos < pastedText.length) {
+          // Ищем ближайший символ переноса строки до точки разделения
+          int newlinePos = pastedText.lastIndexOf('\n', breakPos);
+
+          // Если нашли символ переноса строки, используем его
+          if (newlinePos >= 0) {
+            breakPos = newlinePos + 1; // +1 чтобы включить \n в первую часть
+          }
+          // Если символ переноса строки не найден, ищем пробел
+          else {
+            // Ищем ближайший пробел до позиции разделения
+            int spacePos = remainingSpace;
+            while (spacePos > 0 && pastedText[spacePos - 1] != ' ') {
+              spacePos--;
+            }
+
+            // Если нашли пробел достаточно близко, используем его
+            if (spacePos > remainingSpace - 30 && spacePos > 0) {
+              breakPos = spacePos;
+            }
+          }
+        }
+
+        overflowText = pastedText.substring(breakPos);
+
+        // Обновляем insertedPart и newText с учетом найденной позиции
+        final String adjustedInsertedPart = pastedText.substring(0, breakPos);
+        final String adjustedNewText = textBefore + adjustedInsertedPart;
+
+        // Только если позиция отличается от изначальной
+        if (breakPos != remainingSpace) {
+          // Добавляем textAfter к переполнению
+          overflowText += textAfter;
+
+          // Обрабатываем переполнение
+          if (overflowText.isNotEmpty && onOverflow != null && !_wasProcessed(adjustedNewText, overflowText)) {
+            _lastProcessedText = adjustedNewText;
+            _lastOverflowText = overflowText;
+            _log('Отправляем переполнение размером ${overflowText.length} символов');
+            onOverflow!(overflowText);
+          }
+
+          return TextEditingValue(
+            text: adjustedNewText,
+            selection: TextSelection.collapsed(offset: adjustedNewText.length),
+          );
+        }
       }
-      // Добавляем textAfter только если остается место в текущем блоке
-      if (overflowText.isNotEmpty || newText.length + textAfter.length > maxLength) {
-        overflowText += textAfter;
-      } else {
-        // Если есть место для textAfter, добавляем его к newText
-        _log('Есть место для текста после курсора, добавляем его к основному блоку');
-        return TextEditingValue(
-          text: newText + textAfter,
-          selection: TextSelection.collapsed(offset: newText.length),
-        );
-      }
+
+      // Добавляем textAfter к переполнению
+      overflowText += textAfter;
 
       // Обрабатываем переполнение
       if (overflowText.isNotEmpty && onOverflow != null && !_wasProcessed(newText, overflowText)) {
@@ -183,9 +249,34 @@ class LimitedLengthTextInputFormatter extends TextInputFormatter {
 
     // Обычная проверка на предел длины для регулярного ввода текста
     if (newValue.text.length > maxLength) {
+      // Находим последний пробел до maxLength
+      int breakPos = maxLength;
+
+      // Ищем ближайший символ переноса строки до maxLength
+      int newlinePos = newValue.text.lastIndexOf('\n', maxLength);
+      if (newlinePos >= 0) {
+        breakPos = newlinePos + 1; // +1 чтобы включить \n
+      }
+      // Если не нашли символ переноса, пробуем найти пробел
+      else {
+        // Ищем ближайший пробел до maxLength
+        int spacePos = maxLength;
+        while (spacePos > 0 && newValue.text[spacePos - 1] != ' ') {
+          spacePos--;
+        }
+
+        // Если нашли пробел достаточно близко, используем его
+        if (spacePos > maxLength - 30 && spacePos > 0) {
+          breakPos = spacePos;
+        } else {
+          // Иначе просто используем maxLength
+          breakPos = maxLength;
+        }
+      }
+
       // Ограничиваем длину текста
-      final String limitedText = newValue.text.substring(0, maxLength);
-      final String overflowText = newValue.text.substring(maxLength);
+      final String limitedText = newValue.text.substring(0, breakPos);
+      final String overflowText = newValue.text.substring(breakPos);
 
       // Вызываем колбэк для переполнения
       if (overflowText.isNotEmpty && onOverflow != null && !_wasProcessed(limitedText, overflowText)) {
@@ -196,7 +287,7 @@ class LimitedLengthTextInputFormatter extends TextInputFormatter {
 
       return TextEditingValue(
         text: limitedText,
-        selection: TextSelection.collapsed(offset: Math.min(maxLength, newValue.selection.extentOffset)),
+        selection: TextSelection.collapsed(offset: Math.min(breakPos, newValue.selection.extentOffset)),
       );
     }
 
@@ -328,11 +419,12 @@ class _TextEditorState extends State<TextEditor> {
     // Определяем, требуется ли разбиение текста
     // ИЗМЕНЕНО: Используем maxCharactersPerBlock вместо effectiveLimit для проверки
     if (widget.text.length > widget.limits.maxCharactersPerBlock) {
+      // Находим позицию для обрезки по ближайшему пробелу
+      final int breakPosition = _findNearestBreakPosition(widget.text, widget.limits.maxCharactersPerBlock);
+
       // Вычисляем, какую часть текста сохранить в текущем редакторе
-      final String trimmedText =
-          widget.text.substring(0, Math.min(widget.limits.maxCharactersPerBlock, widget.text.length));
-      final String overflowText =
-          widget.text.substring(Math.min(widget.limits.maxCharactersPerBlock, widget.text.length));
+      final String trimmedText = widget.text.substring(0, breakPosition);
+      final String overflowText = widget.text.substring(breakPosition);
 
       _log('Обнаружено переполнение при инициализации виджета, переполнение: ${overflowText.length} символов');
 
@@ -772,9 +864,12 @@ class _TextEditorState extends State<TextEditor> {
       if (_isTextOverLimit(newText)) {
         _log('Превышен лимит символов (${widget.limits.maxCharactersPerBlock})');
 
+        // Находим позицию для обрезки по ближайшему пробелу
+        final int breakPosition = _findNearestBreakPosition(newText, widget.limits.maxCharactersPerBlock);
+
         // Если превышен, обрезаем текст до допустимого лимита
-        final String trimmedText = newText.substring(0, widget.limits.maxCharactersPerBlock);
-        final String overflowText = newText.substring(widget.limits.maxCharactersPerBlock);
+        final String trimmedText = newText.substring(0, breakPosition);
+        final String overflowText = newText.substring(breakPosition);
 
         _controller.text = trimmedText;
 
@@ -893,15 +988,15 @@ class _TextEditorState extends State<TextEditor> {
       if (_isTextOverLimit(widget.text)) {
         _log('Обнаружен большой объем текста при обновлении виджета: ${widget.text.length} символов');
 
-        // Убедимся, что мы не выходим за пределы текста
-        final effectiveLimit = Math.min(widget.limits.maxCharactersPerBlock, widget.text.length);
+        // Находим позицию для обрезки по ближайшему пробелу
+        final int breakPosition = _findNearestBreakPosition(widget.text, widget.limits.maxCharactersPerBlock);
 
         // Разделяем текст на части: то, что поместится в редактор и переполнение
-        final String trimmedText = widget.text.substring(0, effectiveLimit);
+        final String trimmedText = widget.text.substring(0, breakPosition);
 
         // Проверяем, есть ли переполнение
-        if (effectiveLimit < widget.text.length) {
-          final String overflowText = widget.text.substring(effectiveLimit);
+        if (breakPosition < widget.text.length) {
+          final String overflowText = widget.text.substring(breakPosition);
           _log('Обнаружено переполнение при обновлении виджета, размер: ${overflowText.length} символов');
 
           // Обновляем текст в контроллере
@@ -2147,6 +2242,85 @@ class _TextEditorState extends State<TextEditor> {
         }
       });
     }
+  }
+
+  // Находит ближайший пробел к указанной позиции для правильной обрезки текста
+  int _findNearestSpacePosition(String text, int position) {
+    // Если позиция выходит за пределы текста, используем длину текста
+    if (position >= text.length) return text.length;
+
+    // Если на указанной позиции уже пробел, используем эту позицию
+    if (text[position] == ' ') return position;
+
+    // Ищем ближайший пробел слева от указанной позиции
+    int leftSpacePos = text.lastIndexOf(' ', position);
+
+    // Если мы близко к началу и нет пробела слева, лучше обрезать справа
+    if (leftSpacePos < position - 30 || leftSpacePos < 0) {
+      // Если слева нет пробела в разумных пределах, ищем справа
+      int rightSpacePos = text.indexOf(' ', position);
+
+      // Если нашли пробел справа и он не слишком далеко, используем его
+      if (rightSpacePos > 0 && rightSpacePos < position + 10) {
+        return rightSpacePos + 1; // +1 чтобы включить пробел
+      }
+
+      // Если не нашли пробелов в разумных пределах, используем исходную позицию
+      return position;
+    }
+
+    // Используем позицию пробела + 1, чтобы включить пробел в левую часть
+    return leftSpacePos + 1;
+  }
+
+  // Находит ближайший символ переноса строки или пробел для правильной обрезки текста
+  int _findNearestBreakPosition(String text, int position) {
+    // Если позиция выходит за пределы текста, используем длину текста
+    if (position >= text.length) return text.length;
+
+    // Если на указанной позиции уже символ переноса строки, используем эту позицию
+    if (position < text.length && text[position] == '\n') return position + 1; // +1 чтобы включить \n
+
+    // Ищем ближайший символ переноса строки слева от указанной позиции
+    int leftNewlinePos = text.lastIndexOf('\n', position);
+
+    // Если нашли, используем его (+1, чтобы включить символ переноса в левую часть)
+    if (leftNewlinePos >= 0) {
+      return leftNewlinePos + 1;
+    }
+
+    // Ищем ближайший символ переноса строки справа от указанной позиции
+    int rightNewlinePos = text.indexOf('\n', position);
+
+    // Если нашли, используем его (+1, чтобы включить символ переноса в левую часть)
+    if (rightNewlinePos >= 0) {
+      return rightNewlinePos + 1;
+    }
+
+    // Не нашли символов переноса строки, ищем ближайший пробел
+
+    // Если на указанной позиции уже пробел, используем эту позицию
+    if (position < text.length && text[position] == ' ') return position + 1;
+
+    // Ищем ближайший пробел слева от указанной позиции
+    int leftSpacePos = text.lastIndexOf(' ', position);
+
+    // Если мы близко к началу и нет пробела слева, лучше обрезать справа
+    if (leftSpacePos < position - 30 || leftSpacePos < 0) {
+      // Если слева нет пробела в разумных пределах, ищем справа
+      int rightSpacePos = text.indexOf(' ', position);
+
+      // Если нашли пробел справа и он не слишком далеко, используем его
+      if (rightSpacePos > 0 && rightSpacePos < position + 10) {
+        return rightSpacePos + 1; // +1 чтобы включить пробел
+      }
+
+      // Если не нашли пробелов в разумных пределах, используем исходную позицию
+      return position;
+    }
+
+    // Используем позицию пробела + 1, чтобы включить пробел в левую часть
+    return leftSpacePos + 1;
   }
 }
 
