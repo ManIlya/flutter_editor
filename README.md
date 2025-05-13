@@ -30,6 +30,7 @@ and the Flutter guide for
   * Обтекание текстом (слева, справа, по центру)
   * Поддержка подписей к изображениям
   * Изменение размера изображений
+  * Возможность отключения обтекания на узких экранах
 
 * 📄 **Управление документами**
   * Создание, редактирование и просмотр многоэлементных документов
@@ -58,308 +59,352 @@ and the Flutter guide for
 
 ```yaml
 dependencies:
-  flutter_editor: ^0.0.1
+  flutter_editor: ^0.5.0
 ```
 
 ## Использование
 
-### Базовый пример редактора
+### Настройка темы
+
+Сначала добавьте тему редактора в ваше приложение:
+
+```dart
+MaterialApp(
+  theme: ThemeData(
+    // Ваши настройки темы
+    extensions: [
+      // Используйте встроенную светлую тему
+      EditorThemeExtension.light,
+    ],
+  ),
+  darkTheme: ThemeData(
+    // Настройки темной темы
+    extensions: [
+      // Используйте встроенную темную тему
+      EditorThemeExtension.dark,
+    ],
+  ),
+  home: YourHomePage(),
+);
+```
+
+Вы также можете создать собственную тему для редактора:
+
+```dart
+// Пример пользовательской темы
+final customTheme = EditorThemeExtension(
+  backgroundColor: Colors.white,
+  borderColor: Colors.grey.shade200,
+  selectedBorderColor: Colors.blue,
+  selectedBackgroundColor: Colors.blue.withOpacity(0.1),
+  toolbarColor: Colors.grey.shade50,
+  toolbarIconColor: Colors.grey.shade700,
+  toolbarSelectedIconColor: Colors.blue,
+  captionColor: Colors.grey.shade600,
+  linkColor: Colors.blue,
+  // И другие параметры...
+);
+
+// Применение темы
+Theme(
+  data: Theme.of(context).copyWith(
+    extensions: [customTheme],
+  ),
+  child: CustomEditor(...),
+);
+```
+
+### Создание редактора
+
+#### Базовый редактор
 
 ```dart
 import 'package:flutter/material.dart';
 import 'package:flutter_editor/flutter_editor.dart';
 import 'dart:typed_data';
 
-class EditorDemo extends StatefulWidget {
-  @override
-  _EditorDemoState createState() => _EditorDemoState();
-}
+// Создаем пустую модель документа
+DocumentModel document = DocumentModel(elements: [
+  TextElement(text: "Начните редактирование здесь..."),
+]);
 
-class _EditorDemoState extends State<EditorDemo> {
-  // Создаем пустую модель документа
-  DocumentModel document = DocumentModel(elements: [
-    TextElement(text: "Начните редактирование здесь..."),
-  ]);
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text("Редактор документов")),
-      body: Padding(
-        padding: const EdgeInsets.all(16.0),
-        child: CustomEditor(
-          initialDocument: document,
-          onDocumentChanged: (newDoc) {
-            setState(() {
-              document = newDoc;
-            });
-          },
-          // Функция для загрузки изображений на сервер
-          fileToUrlConverter: (Uint8List fileData, String fileName) async {
-            // В реальном приложении здесь должен быть код загрузки файла на сервер
-            // Для примера просто возвращаем фиктивную ссылку
-            return 'https://example.com/images/$fileName';
-          },
-        ),
-      ),
-    );
-  }
-}
-```
-
-### Настройка темы приложения
-
-```dart
-MaterialApp(
-  theme: ThemeData(
-    extensions: [
-      EditorThemeExtension.light, // Используем светлую тему редактора
-    ],
-  ),
-  darkTheme: ThemeData(
-    extensions: [
-      EditorThemeExtension.dark, // Используем темную тему редактора
-    ],
-  ),
-  home: EditorDemo(),
-);
-```
-
-### Режим просмотра документа
-
-```dart
-// Для просмотра документа без возможности редактирования
-DocumentViewer(
-  document: yourDocumentModel,
+// Добавляем редактор в виджет
+CustomEditor(
+  initialDocument: document,
+  onDocumentChanged: (newDoc) {
+    setState(() {
+      document = newDoc;
+    });
+  },
+  // Функция для загрузки изображений на сервер
+  fileToUrlConverter: (Uint8List fileData, String fileName) async {
+    // В реальном приложении здесь должен быть код загрузки файла на сервер
+    // и получения URL для изображения
+    return 'https://example.com/images/$fileName';
+  },
 )
 ```
 
-### Добавление пользовательских иконок в тулбар
-
-Редактор поддерживает добавление пользовательских иконок на панель инструментов, которые могут взаимодействовать с выделенным текстом или изображением:
+#### Редактор с дополнительными опциями
 
 ```dart
 CustomEditor(
   initialDocument: document,
-  onDocumentChanged: (newDoc) => setState(() => document = newDoc),
+  onDocumentChanged: (newDoc) {
+    setState(() {
+      document = newDoc;
+    });
+  },
+  // Функция для загрузки изображений
+  fileToUrlConverter: (Uint8List fileData, String fileName) async {
+    // Загрузка файла и получение URL
+    return 'https://example.com/images/$fileName';
+  },
+  // Включение логирования для отладки
+  enableLogging: true, 
+  // Фиксированная высота области редактирования
+  editorHeight: 500, 
+  // Пользовательские элементы панели инструментов
   customToolbarItems: [
-    // Иконка, работающая с выделенным текстом
     CustomToolbarItem(
-      icon: Icons.format_color_text,
+      icon: Icons.color_lens,
       tooltip: 'Изменить цвет текста',
       onAction: (context) {
-        // Проверяем, что выделен текст
-        if (context.hasTextSelection) {
-          // Получаем элемент текста и выделение
-          final textElement = context.textElement!;
-          final start = context.textSelection!.start;
-          final end = context.textSelection!.end;
-          
-          // Применяем стиль к выделенному тексту
-          textElement.applyStyle(
-            TextStyleAttributes(color: Colors.blue), 
-            start, end
-          );
-          
-          setState(() {}); // Обновляем UI
-        }
+        // Ваш код обработки действия
       },
-      // Активна только для выделенного текста
       enableOnlyWithSelection: true,
       enabledForTypes: {SelectedElementType.text},
-    ),
-    
-    // Иконка для работы с изображением
-    CustomToolbarItem(
-      icon: Icons.photo_size_select_small,
-      tooltip: 'Уменьшить размер изображения',
-      onAction: (context) {
-        if (context.hasImageSelection) {
-          // Получаем изображение и его индекс
-          final imageElement = context.imageElement!;
-          final index = context.elementIndex!;
-          
-          // Создаем обновленное изображение с новыми размерами
-          final newImage = imageElement.copyWith(
-            width: imageElement.width * 0.8,
-            height: imageElement.height * 0.8,
-          );
-          
-          // Обновляем документ
-          setState(() {
-            document.elements[index] = newImage;
-          });
-        }
-      },
-      // Активна только для выделенного изображения
-      enableOnlyWithSelection: true,
-      enabledForTypes: {SelectedElementType.image},
-    ),
-    
-    // Обычная иконка, активная всегда
-    CustomToolbarItem(
-      icon: Icons.info_outline,
-      tooltip: 'Справка',
-      onPressed: () {
-        // Простое действие без контекста выделения
-        showDialog(context: context, builder: (_) => AlertDialog(
-          title: Text('Справка'),
-          content: Text('Информация о редакторе'),
-        ));
-      },
     ),
   ],
 )
 ```
 
-## Структура документа
+### Просмотр документа
 
-Документ состоит из элементов двух типов:
-- `TextElement` - текстовый элемент с поддержкой форматирования через спаны
-- `ImageElement` - изображение с подписью и возможностью обтекания текстом
-
-### TextElement
-Поддерживает:
-- Стили форматирования (жирный, курсив, подчеркнутый)
-- Размер шрифта
-- Выравнивание текста
-- Ссылки
-
-### ImageElement
-Поддерживает:
-- Загрузку из галереи устройства
-- Добавление по URL
-- Выравнивание (по левому краю, по центру, по правому краю)
-- Подписи
-- Различные типы размеров (абсолютный, процент от экрана, оригинальный)
-
-## API
-
-### Основные классы
-
-#### DocumentModel
-Представляет полный документ, состоящий из элементов.
-
-#### CustomEditor
-Основной виджет редактора с полной функциональностью:
+Для просмотра документа без возможности редактирования используйте `DocumentViewer`:
 
 ```dart
-CustomEditor(
-  initialDocument: documentModel, // Начальный документ
-  onDocumentChanged: (newDoc) {}, // Колбэк при изменении документа
-  enableLogging: false, // Включение логирования для отладки
-  fileToUrlConverter: (fileData, fileName) async {
-    // Функция для преобразования файла изображения в URL
-    return 'https://example.com/images/$fileName';
+DocumentViewer(
+  document: document,
+  // Обработка нажатия на изображения
+  onImageTap: (imageUrl, imageElement) {
+    // Ваш код обработки нажатия
+    print('Нажатие на изображение: $imageUrl');
   },
-  customToolbarItems: [], // Пользовательские иконки панели инструментов
+  // Отключить обтекание изображений текстом на узких экранах
+  disableFloatOnNarrowScreens: true,
+  // Пороговое значение ширины экрана в пикселях
+  narrowScreenThreshold: 600,
 )
 ```
 
-#### FileToUrlConverter
-Тип функции для загрузки изображений:
+## Структура документа
+
+### DocumentModel
+
+Основная модель данных, представляющая документ. Содержит список элементов:
 
 ```dart
-typedef FileToUrlConverter = Future<String?> Function(Uint8List fileData, String fileName);
+final document = DocumentModel(elements: [
+  TextElement(text: "Заголовок документа", 
+    style: TextStyleAttributes(
+      bold: true, 
+      fontSize: 24.0
+    )
+  ),
+  TextElement(text: "Обычный параграф текста..."),
+  ImageElement(
+    imageUrl: 'https://example.com/image.jpg',
+    caption: 'Подпись к изображению',
+    float: FCFloat.start, // Обтекание слева
+    width: 300,
+    height: 200,
+  ),
+]);
 ```
 
-#### CustomToolbarItem
-Настраиваемая иконка для панели инструментов:
+### TextElement
+
+Элемент документа, содержащий текст с возможностью форматирования:
 
 ```dart
-CustomToolbarItem({
-  required IconData icon,           // Иконка для отображения
-  required String tooltip,          // Подсказка при наведении
-  VoidCallback? onPressed,          // Простой обработчик нажатия
-  CustomToolbarActionCallback? onAction, // Обработчик с контекстом
-  Color? color,                     // Цвет иконки
-  bool enableOnlyWithSelection = false, // Активна только при выделении
-  Set<SelectedElementType> enabledForTypes = const {...}, // Для каких типов активна
-})
+// Простой текстовый элемент
+TextElement(text: "Простой текст")
+
+// Отформатированный текст
+TextElement(
+  text: "Форматированный текст",
+  style: TextStyleAttributes(
+    bold: true,
+    italic: false,
+    underline: false,
+    fontSize: 18.0,
+    color: Colors.blue,
+    alignment: TextAlign.center,
+    link: "https://example.com",
+  ),
+)
+
+// Текст с разными стилями через spans
+TextElement(
+  text: "Комбинированный текст с разными стилями",
+  spans: [
+    TextSpanDocument(
+      text: "Комбинированный ",
+      style: TextStyleAttributes(bold: true),
+    ),
+    TextSpanDocument(
+      text: "текст с ",
+      style: TextStyleAttributes(italic: true),
+    ),
+    TextSpanDocument(
+      text: "разными стилями",
+      style: TextStyleAttributes(underline: true),
+    ),
+  ],
+)
 ```
 
-#### EditorSelectionContext
-Предоставляет контекст о текущем выделении для обработчика иконки:
+### ImageElement
+
+Элемент документа, содержащий изображение:
 
 ```dart
-EditorSelectionContext({
-  required SelectedElementType type, // Тип выделенного элемента
-  int? elementIndex,                 // Индекс элемента в документе
-  TextElement? textElement,          // Выделенный текстовый элемент
-  TextSelection? textSelection,      // Выделение текста
-  ImageElement? imageElement,        // Выделенное изображение
+// Простое изображение
+ImageElement(
+  imageUrl: 'https://example.com/image.jpg',
+)
+
+// Изображение с дополнительными параметрами
+ImageElement(
+  imageUrl: 'https://example.com/image.jpg',
+  caption: 'Подпись к изображению',
+  float: FCFloat.start, // Обтекание слева (start, end, none)
+  width: 300, // Ширина в пикселях
+  height: 200, // Высота в пикселях
+  sizeType: ImageSizeType.absolute, // Тип размера (absolute, percentOfScreen, original)
+  sizePercent: 50, // Процент от ширины экрана (если выбран тип percentOfScreen)
+)
+```
+
+## Пользовательские элементы панели инструментов
+
+Редактор поддерживает добавление пользовательских иконок на панель инструментов с доступом к контексту выделения:
+
+```dart
+CustomToolbarItem(
+  icon: Icons.format_color_text, // Иконка 
+  tooltip: 'Изменить цвет текста', // Подсказка
+  color: Colors.blue, // Цвет иконки (опционально)
+  
+  // Простой обработчик нажатия без контекста
+  onPressed: () {
+    // Код обработки нажатия
+  },
+  
+  // ИЛИ обработчик с доступом к контексту выделения
+  onAction: (EditorSelectionContext context) {
+    // Проверка типа выделенного элемента
+    if (context.type == SelectedElementType.text) {
+      // Доступ к выделенному тексту
+      final textElement = context.textElement!;
+      final selection = context.textSelection!;
+      
+      // Применение стиля к выделенному тексту
+      textElement.applyStyle(
+        TextStyleAttributes(color: Colors.red),
+        selection.start,
+        selection.end
+      );
+    }
+  },
+  
+  // Активация только при наличии выделения
+  enableOnlyWithSelection: true,
+  
+  // Типы элементов, для которых доступна иконка
+  enabledForTypes: {
+    SelectedElementType.text,
+    SelectedElementType.image,
+  },
+)
+```
+
+## Сериализация и десериализация документа
+
+```dart
+// Конвертация DocumentModel в JSON строку для хранения
+String jsonString = documentModel.toJson();
+
+// Восстановление из JSON
+DocumentModel restoredDoc = DocumentModel.fromJson(jsonString);
+
+// Также доступны другие форматы:
+String htmlString = documentModel.toHtml(); // Конвертация в HTML
+DocumentModel htmlDoc = DocumentModel.fromHtml(htmlString); // Из HTML
+
+// Из обычного текста
+DocumentModel plainTextDoc = DocumentModel.fromPlainText("Простой текст");
+```
+
+## API-документация
+
+### Основные классы
+
+#### CustomEditor
+
+```dart
+CustomEditor({
+  required DocumentModel initialDocument,
+  Function(DocumentModel)? onDocumentChanged,
+  FileToUrlConverter? fileToUrlConverter,
+  List<Widget>? customToolbarItems,
+  bool enableLogging = false,
+  double? editorHeight,
 })
 ```
 
 #### DocumentViewer
-Виджет для просмотра документа без возможности редактирования.
+
+```dart
+DocumentViewer({
+  required DocumentModel document,
+  Function(String, ImageElement)? onImageTap,
+  bool enableLogging = false,
+  bool enableFirstLineIndent = true,
+  bool disableFloatOnNarrowScreens = true,
+  double narrowScreenThreshold = 600,
+})
+```
 
 #### EditorThemeExtension
-Позволяет настраивать внешний вид редактора и интегрировать его с темой приложения.
 
-## Дополнительно
+```dart
+EditorThemeExtension({
+  Color backgroundColor = Colors.white,
+  Color borderColor = const Color(0xFFE0E0E0),
+  Color selectedBorderColor = Colors.blue,
+  Color selectedBackgroundColor = const Color(0xFFE3F2FD),
+  Color toolbarColor = Colors.white,
+  Color toolbarIconColor = Colors.black,
+  Color toolbarSelectedIconColor = Colors.blue,
+  // другие параметры...
+})
+```
 
-### Требования
+## Требования
 
 - Flutter: `>=1.17.0`
-- Dart: `^3.7.2`
+- Dart: `>=3.0.0 <4.0.0`
 
-### Зависимости
+## Зависимости
 
 - float_column: `^4.0.0` - для обтекания изображений текстом
 - image_picker: `^1.0.7` - для выбора изображений
 - cached_network_image: `^3.3.1` - для кеширования изображений
 - url_launcher: `^6.2.5` - для открытия ссылок
+- html: `^0.15.4` - для парсинга HTML
 
-### Сериализация и десериализация документа
+## Лицензия
 
-Для сохранения или передачи документа между приложениями вы можете использовать различные форматы данных:
-
-#### JSON формат
-
-```dart
-// Сериализация документа в JSON строку
-DocumentModel document = ...; // Ваш документ
-String jsonString = document.toJson();
-
-// Десериализация документа из JSON строки
-String jsonFromApi = ...; // JSON строка, полученная из API
-DocumentModel restoredDocument = DocumentModel.fromJson(jsonFromApi);
-```
-
-#### HTML формат
-
-```dart
-// Сериализация документа в HTML
-DocumentModel document = ...; // Ваш документ
-String htmlString = document.toHtml();
-
-// Десериализация документа из HTML
-String html = ...; // HTML-код
-DocumentModel htmlDocument = DocumentModel.fromHtml(html);
-```
-
-#### Простой текст
-
-```dart
-// Десериализация документа из обычного текста
-String plainText = "Заголовок\n\nПервый параграф\n\nВторой параграф";
-DocumentModel textDocument = DocumentModel.fromPlainText(plainText);
-```
-
-#### Универсальный метод
-
-Библиотека также предоставляет универсальный метод десериализации, который автоматически определяет формат входной строки:
-
-```dart
-import 'package:flutter_editor/flutter_editor.dart';
-
-// Автоматическое определение формата и десериализация
-String input = ...; // Может быть JSON, HTML или простой текст
-DocumentModel document = deserializeDocumentModel(input, format: InputFormat.auto);
-
-// Явное указание формата
-DocumentModel jsonDoc = deserializeDocumentModel(jsonString, format: InputFormat.json);
-DocumentModel htmlDoc = deserializeDocumentModel(htmlString, format: InputFormat.html); 
-DocumentModel textDoc = deserializeDocumentModel(text, format: InputFormat.plainText);
-```
+Проект распространяется под лицензией FITTIN.

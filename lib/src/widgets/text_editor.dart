@@ -2904,7 +2904,41 @@ class StyledTextEditingController extends TextEditingController {
     }
 
     _log('Применение стиля к диапазону: start=$start, end=$end');
-    _log('Новый стиль: bold=${style.bold}, italic=${style.italic}, underline=${style.underline}, link=${style.link}');
+    _log(
+        'Новый стиль: bold=${style.bold}, italic=${style.italic}, underline=${style.underline}, link=${style.link}, fontSize=${style.fontSize}');
+
+    // Получаем стиль из первого спана, попадающего в диапазон для определения, какие атрибуты изменяются
+    doc.TextStyleAttributes? referenceStyle;
+    int tmpCurrentPos = 0;
+    for (var span in spans!) {
+      final spanStart = tmpCurrentPos;
+      final spanEnd = tmpCurrentPos + span.text.length;
+
+      // Если спан пересекается с выделением
+      if (!(spanEnd <= start || spanStart >= end)) {
+        referenceStyle = span.style;
+        break;
+      }
+
+      tmpCurrentPos = spanEnd;
+    }
+
+    // Определяем, какие атрибуты стиля изменяются
+    bool isBoldChanged = referenceStyle != null && style.bold != referenceStyle.bold;
+    bool isItalicChanged = referenceStyle != null && style.italic != referenceStyle.italic;
+    bool isUnderlineChanged = referenceStyle != null && style.underline != referenceStyle.underline;
+    bool isLinkChanged = referenceStyle != null && style.link != referenceStyle.link;
+    bool isFontSizeChanged = referenceStyle != null && style.fontSize != referenceStyle.fontSize;
+
+    // Логируем, какие атрибуты изменяются
+    if (referenceStyle != null) {
+      _log('Изменяемые атрибуты стиля: ' +
+          (isBoldChanged ? 'bold, ' : '') +
+          (isItalicChanged ? 'italic, ' : '') +
+          (isUnderlineChanged ? 'underline, ' : '') +
+          (isLinkChanged ? 'link, ' : '') +
+          (isFontSizeChanged ? 'fontSize' : ''));
+    }
 
     final List<doc.TextSpanDocument> newSpans = [];
     int currentPos = 0;
@@ -2939,8 +2973,24 @@ class StyledTextEditingController extends TextEditingController {
           Math.min(span.text.length, end - spanStart),
         );
 
-        newSpans.add(doc.TextSpanDocument(text: insideText, style: style));
-        _log('Создан спан ВНУТРИ выделения: "$insideText" с новым стилем: bold=${style.bold}, italic=${style.italic}');
+        // Применяем только изменяющиеся атрибуты стиля, сохраняя остальные атрибуты
+        doc.TextStyleAttributes finalStyle = span.style.copyWith(
+          bold: isBoldChanged ? style.bold : span.style.bold,
+          italic: isItalicChanged ? style.italic : span.style.italic,
+          underline: isUnderlineChanged ? style.underline : span.style.underline,
+          link: isLinkChanged ? style.link : span.style.link,
+          fontSize: isFontSizeChanged ? style.fontSize : span.style.fontSize,
+          // Следующие атрибуты не изменяем, т.к. они обычно устанавливаются отдельно
+          color: style.color ?? span.style.color,
+          alignment: style.alignment,
+          // Для случая удаления ссылки
+          removeLink: style.link == null && isLinkChanged ? true : false,
+        );
+
+        newSpans.add(doc.TextSpanDocument(text: insideText, style: finalStyle));
+        _log('Создан спан ВНУТРИ выделения: "$insideText" с новым стилем: ' +
+            'bold=${finalStyle.bold}, italic=${finalStyle.italic}, underline=${finalStyle.underline}, ' +
+            'fontSize=${finalStyle.fontSize}, link=${finalStyle.link}');
 
         // Часть после диапазона
         if (spanEnd > end) {
