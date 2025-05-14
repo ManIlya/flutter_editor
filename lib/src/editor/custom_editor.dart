@@ -6,6 +6,8 @@ import 'dart:ui' show lerpDouble;
 import 'dart:typed_data';
 import 'package:flutter_editor/flutter_editor.dart';
 import '../widgets/toolbar.dart';
+import '../models/document_model.dart';
+import '../widgets/text_editor.dart'; // Импортируем для доступа к StyledTextEditingController
 
 /// Тип источника изображения
 enum ImageSourceType {
@@ -174,9 +176,9 @@ class _CustomEditorState extends State<CustomEditor> {
 
         if (widget.enableLogging) {
           print('════════════════════════════════════════════');
-          print('📝 ОБНОВЛЕНИЕ ТЕКСТОВОГО ЭЛЕМЕНТА #$index:');
-          print('Старый текст: "${textElement.text}"');
-          print('Новый текст: "$newText"');
+          print('🔄 ОБНОВЛЕНИЕ ТЕКСТА:');
+          print('Старый текст: "${StyledTextEditingController.formatSpanText(textElement.text)}"');
+          print('Новый текст: "${StyledTextEditingController.formatSpanText(newText)}"');
         }
 
         // Логируем структуру спанов до обновления
@@ -193,7 +195,10 @@ class _CustomEditorState extends State<CustomEditor> {
             final bool isUnderline = span.style.underline;
             final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
-            print('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
+            // Обрабатываем длинные спаны для компактного отображения
+            String displayText = StyledTextEditingController.formatSpanText(span.text);
+
+            print('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"$displayText"');
             currentPos = spanEnd;
           }
         }
@@ -239,8 +244,11 @@ class _CustomEditorState extends State<CustomEditor> {
                 final bool isUnderline = span.style.underline;
                 final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
+                // Обрабатываем длинные спаны для компактного отображения
+                String displayText = StyledTextEditingController.formatSpanText(span.text);
+
                 print(
-                  'Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"',
+                  'Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"$displayText"',
                 );
                 posAfter = spanEnd;
               }
@@ -288,8 +296,8 @@ class _CustomEditorState extends State<CustomEditor> {
     if (widget.enableLogging) {
       print('════════════════════════════════════════════');
       print('🔄 ОБНОВЛЕНИЕ ТЕКСТА С СОХРАНЕНИЕМ СТИЛЕЙ:');
-      print('Старый текст: "$oldText"');
-      print('Новый текст: "$newText"');
+      print('Старый текст: "${StyledTextEditingController.formatSpanText(oldText)}"');
+      print('Новый текст: "${StyledTextEditingController.formatSpanText(newText)}"');
     }
 
     // Если нет изменений, ничего не делаем
@@ -324,7 +332,7 @@ class _CustomEditorState extends State<CustomEditor> {
       final addedText = newText.substring(insertPosition, insertPosition + addedLength);
 
       if (widget.enableLogging) print('Позиция вставки: $insertPosition');
-      if (widget.enableLogging) print('Добавленный текст: "$addedText"');
+      if (widget.enableLogging) print('Добавленный текст: "${StyledTextEditingController.formatSpanText(addedText)}"');
 
       // Создаем новые спаны
       List<TextSpanDocument> newSpans = [];
@@ -335,7 +343,9 @@ class _CustomEditorState extends State<CustomEditor> {
         final spanStart = currentPos;
         final spanEnd = currentPos + span.text.length;
 
-        if (widget.enableLogging) print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+        if (widget.enableLogging)
+          print(
+              'Анализ спана #$i: "${StyledTextEditingController.formatSpanText(span.text)}" позиция [$spanStart-$spanEnd]');
 
         // Если вставка произошла внутри этого спана
         if (insertPosition >= spanStart && insertPosition <= spanEnd) {
@@ -345,19 +355,24 @@ class _CustomEditorState extends State<CustomEditor> {
           if (insertPosition > spanStart) {
             final beforeText = span.text.substring(0, insertPosition - spanStart);
             newSpans.add(TextSpanDocument(text: beforeText, style: span.style));
-            if (widget.enableLogging) print('Добавлен текст до вставки: "$beforeText" (тот же стиль)');
+            if (widget.enableLogging)
+              print(
+                  'Добавлен текст до вставки: "${StyledTextEditingController.formatSpanText(beforeText)}" (тот же стиль)');
           }
 
           // Добавленный текст (с тем же стилем, что и спан, где произошла вставка)
           newSpans.add(TextSpanDocument(text: addedText, style: span.style));
           if (widget.enableLogging)
-            print('Добавлен новый текст: "$addedText" (стиль: bold=${span.style.bold}, italic=${span.style.italic})');
+            print(
+                'Добавлен новый текст: "${StyledTextEditingController.formatSpanText(addedText)}" (стиль: bold=${span.style.bold}, italic=${span.style.italic})');
 
           // Текст после вставки
           if (insertPosition - spanStart < span.text.length) {
             final afterText = span.text.substring(insertPosition - spanStart);
             newSpans.add(TextSpanDocument(text: afterText, style: span.style));
-            if (widget.enableLogging) print('Добавлен текст после вставки: "$afterText" (тот же стиль)');
+            if (widget.enableLogging)
+              print(
+                  'Добавлен текст после вставки: "${StyledTextEditingController.formatSpanText(afterText)}" (тот же стиль)');
           }
         }
         // Если спан полностью до места вставки
@@ -369,7 +384,9 @@ class _CustomEditorState extends State<CustomEditor> {
         else {
           final textAfterInsert = span.text;
           newSpans.add(TextSpanDocument(text: textAfterInsert, style: span.style));
-          if (widget.enableLogging) print('Спан после места вставки, добавлен с текстом: "$textAfterInsert"');
+          if (widget.enableLogging)
+            print(
+                'Спан после места вставки, добавлен с текстом: "${StyledTextEditingController.formatSpanText(textAfterInsert)}"');
         }
 
         currentPos = spanEnd;
@@ -403,7 +420,7 @@ class _CustomEditorState extends State<CustomEditor> {
       final deletedText = oldText.substring(deleteStart, deleteEnd);
 
       if (widget.enableLogging) print('Позиция удаления: $deleteStart-$deleteEnd');
-      if (widget.enableLogging) print('Удаленный текст: "$deletedText"');
+      if (widget.enableLogging) print('Удаленный текст: "${StyledTextEditingController.formatSpanText(deletedText)}"');
 
       // Строим новые спаны с учетом удаления
       List<TextSpanDocument> newSpans = [];
@@ -414,7 +431,9 @@ class _CustomEditorState extends State<CustomEditor> {
         final spanStart = currentPos;
         final spanEnd = currentPos + span.text.length;
 
-        if (widget.enableLogging) print('Анализ спана #$i: "${span.text}" позиция [$spanStart-$spanEnd]');
+        if (widget.enableLogging)
+          print(
+              'Анализ спана #$i: "${StyledTextEditingController.formatSpanText(span.text)}" позиция [$spanStart-$spanEnd]');
 
         // Спан полностью до удаления
         if (spanEnd <= deleteStart) {
@@ -427,7 +446,8 @@ class _CustomEditorState extends State<CustomEditor> {
           final newSpanStart = spanStart - (deleteEnd - deleteStart);
           final newText = span.text;
           newSpans.add(TextSpanDocument(text: newText, style: span.style));
-          if (widget.enableLogging) print('Спан после удаления, добавлен с текстом: "$newText"');
+          if (widget.enableLogging)
+            print('Спан после удаления, добавлен с текстом: "${StyledTextEditingController.formatSpanText(newText)}"');
         }
         // Спан пересекается с удалением
         else {
@@ -435,14 +455,16 @@ class _CustomEditorState extends State<CustomEditor> {
           if (spanStart < deleteStart) {
             final beforeText = span.text.substring(0, deleteStart - spanStart);
             newSpans.add(TextSpanDocument(text: beforeText, style: span.style));
-            if (widget.enableLogging) print('Добавлена часть спана до удаления: "$beforeText"');
+            if (widget.enableLogging)
+              print('Добавлена часть спана до удаления: "${StyledTextEditingController.formatSpanText(beforeText)}"');
           }
 
           // Часть после удаления
           if (spanEnd > deleteEnd) {
             final afterText = span.text.substring(deleteEnd - spanStart);
             newSpans.add(TextSpanDocument(text: afterText, style: span.style));
-            if (widget.enableLogging) print('Добавлена часть спана после удаления: "$afterText"');
+            if (widget.enableLogging)
+              print('Добавлена часть спана после удаления: "${StyledTextEditingController.formatSpanText(afterText)}"');
           }
         }
 
@@ -471,7 +493,7 @@ class _CustomEditorState extends State<CustomEditor> {
     if (widget.enableLogging) print('════════════════════════════════════════════');
   }
 
-  // Объединяет соседние спаны с одинаковыми стилями
+  // Объединяет соседние спаны с одинаковыми стилями для оптимизации
   List<TextSpanDocument> _mergeAdjacentSpans(List<TextSpanDocument> spans) {
     if (spans.length <= 1) return spans;
 
@@ -485,7 +507,9 @@ class _CustomEditorState extends State<CustomEditor> {
       } else if (_areStylesEqual(currentSpan.style, span.style)) {
         // Если стили одинаковые, объединяем текст
         currentSpan = TextSpanDocument(text: currentSpan.text + span.text, style: currentSpan.style);
-        if (widget.enableLogging) print('Объединены спаны с одинаковыми стилями: "${currentSpan.text}"');
+        if (widget.enableLogging)
+          print(
+              'Объединены спаны с одинаковыми стилями: "${StyledTextEditingController.formatSpanText(currentSpan.text)}"');
       } else {
         // Если стили разные, добавляем текущий спан и начинаем новый
         result.add(currentSpan);
@@ -1287,12 +1311,34 @@ class _CustomEditorState extends State<CustomEditor> {
       print('Получено переполнение текста: ${overflowText.length} символов');
     }
 
-    // Определяем стиль текущего элемента
+    // Определяем стиль текущего элемента в позиции курсора, а не стиль всего элемента
     TextStyleAttributes? currentStyle;
     if (_selectedIndex != null &&
         _selectedIndex! < _document.elements.length &&
         _document.elements[_selectedIndex!] is TextElement) {
-      currentStyle = (_document.elements[_selectedIndex!] as TextElement).style;
+      TextElement textElement = (_document.elements[_selectedIndex!] as TextElement);
+
+      // Получаем текущую позицию курсора и стиль в этой позиции
+      int? cursorPosition = _selection?.baseOffset;
+      if (cursorPosition != null && cursorPosition >= 0 && cursorPosition < textElement.text.length) {
+        // Ищем стиль в позиции курсора через spans элемента
+        currentStyle = textElement.styleAt(cursorPosition);
+
+        // Если стиль не найден в spans, используем базовый стиль элемента
+        if (currentStyle == null) {
+          currentStyle = textElement.style;
+        }
+
+        if (widget.enableLogging) {
+          print('Используем стиль из позиции курсора ($cursorPosition) для переполнения');
+        }
+      } else {
+        // Если не удалось получить позицию курсора, используем базовый стиль элемента
+        currentStyle = textElement.style;
+        if (widget.enableLogging) {
+          print('Используем базовый стиль элемента для переполнения, т.к. позиция курсора недоступна');
+        }
+      }
     }
 
     // Если размер текста меньше 9500 символов, создаем один блок независимо от наличия переносов строк

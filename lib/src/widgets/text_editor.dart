@@ -564,8 +564,10 @@ class _TextEditorState extends State<TextEditor> {
     _log('Размер переполнения: ${overflowText.length} символов');
 
     // Получаем стиль текста в позиции курсора или используем стиль виджета
-    final doc.TextStyleAttributes currentStyle =
-        _controller.getStyleAt(_controller.selection.baseOffset) ?? widget.style;
+    final doc.TextStyleAttributes currentStyle = _getCurrentStyleAtCursor();
+
+    _log(
+        'Используемый стиль: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}');
 
     // Список блоков данных для создания новых текстовых блоков
     final List<TextBlockData> blockDataList = [];
@@ -2322,6 +2324,28 @@ class _TextEditorState extends State<TextEditor> {
     // Используем позицию пробела + 1, чтобы включить пробел в левую часть
     return leftSpacePos + 1;
   }
+
+  // Получает текущий стиль в позиции курсора
+  doc.TextStyleAttributes _getCurrentStyleAtCursor() {
+    // Получаем позицию курсора
+    final int cursorPosition = _controller.selection.baseOffset;
+
+    // Проверяем, что позиция курсора валидна
+    if (cursorPosition >= 0 && cursorPosition < _controller.text.length) {
+      // Получаем стиль в позиции курсора
+      final style = _controller.getStyleAt(cursorPosition);
+      if (style != null) {
+        _log(
+            'Получен стиль из позиции курсора ($cursorPosition): bold=${style.bold}, italic=${style.italic}, underline=${style.underline}');
+        return style;
+      }
+    }
+
+    // Если не удалось получить стиль из позиции курсора, используем текущий выбранный стиль
+    _log(
+        'Не удалось получить стиль из позиции курсора, используем базовый стиль: bold=${widget.style.bold}, italic=${widget.style.italic}, underline=${widget.style.underline}');
+    return widget.style;
+  }
 }
 
 /// Контроллер для работы со стилизованным текстом
@@ -2397,8 +2421,8 @@ class StyledTextEditingController extends TextEditingController {
 
     _log('════════════════════════════════════════════');
     _log('🔄 ОБРАБОТКА ИЗМЕНЕНИЯ ТЕКСТА:');
-    _log('Старый текст: "$oldText"');
-    _log('Новый текст: "$newText"');
+    _log('Старый текст: "${formatSpanText(oldText)}"');
+    _log('Новый текст: "${formatSpanText(newText)}"');
     _log('Позиция курсора: ${currentSelection.baseOffset}');
 
     // Найдем общий префикс и суффикс
@@ -2432,8 +2456,8 @@ class StyledTextEditingController extends TextEditingController {
     if (isReplacement) {
       _log('🔄 Обнаружена замена текста.');
       _log('Замена текста в позиции $replaceStartOld');
-      _log('Старый текст: "${oldText.substring(replaceStartOld, replaceEndOld)}"');
-      _log('Новый текст: "${newText.substring(replaceStartNew, replaceEndNew)}"');
+      _log('Старый текст: "${formatSpanText(oldText.substring(replaceStartOld, replaceEndOld))}"');
+      _log('Новый текст: "${formatSpanText(newText.substring(replaceStartNew, replaceEndNew))}"');
 
       // Получим стиль в месте замены
       doc.TextStyleAttributes? styleAtReplace;
@@ -2556,7 +2580,7 @@ class StyledTextEditingController extends TextEditingController {
 
       _log('Позиция вставки: $insertPos');
       _log('Добавлено символов: ${addedText.length}');
-      _log('Добавленный текст: "$addedText"');
+      _log('Добавленный текст: "${formatSpanText(addedText)}"');
 
       // Получим стиль в позиции вставки
       doc.TextStyleAttributes? styleAtInsert;
@@ -2975,10 +2999,20 @@ class StyledTextEditingController extends TextEditingController {
       final bool isUnderline = span.style.underline;
       final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
-      _log('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
+      _log(
+          'Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${formatSpanText(span.text)}"');
       currentPos = spanEnd;
     }
     _log('════════════════════════════════════════════');
+  }
+
+  // Форматирует длинные тексты спанов для отображения в логах
+  static String formatSpanText(String text) {
+    if (text.length > 100) {
+      // Отображаем первые 50 символов, затем многоточие, затем последние 50 символов
+      return '${text.substring(0, 50)} ... ${text.substring(text.length - 50)}';
+    }
+    return text;
   }
 
   // Объединяет соседние спаны с одинаковым стилем

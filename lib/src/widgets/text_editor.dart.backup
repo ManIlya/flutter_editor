@@ -1749,10 +1749,19 @@ class StyledTextEditingController extends TextEditingController {
       final bool isUnderline = span.style.underline;
       final String styleMarkers = [if (isBold) 'Ж', if (isItalic) 'К', if (isUnderline) 'П'].join('');
 
-      _log('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${span.text}"');
+      _log('Спан #$i [$spanStart-$spanEnd]: ${styleMarkers.isNotEmpty ? "[$styleMarkers] " : ""}"${formatSpanText(span.text)}"');
       currentPos = spanEnd;
     }
     _log('════════════════════════════════════════════');
+  }
+
+  // Форматирует длинные тексты спанов для отображения в логах
+  static String formatSpanText(String text) {
+    if (text.length > 100) {
+      // Отображаем первые 50 символов, затем многоточие, затем последние 50 символов
+      return '${text.substring(0, 50)} ... ${text.substring(text.length - 50)}';
+    }
+    return text;
   }
 
   // Объединяет соседние спаны с одинаковым стилем
