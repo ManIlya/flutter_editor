@@ -1261,26 +1261,26 @@ class _CustomEditorState extends State<CustomEditor> {
 
   // Создает новый текстовый блок с заданным текстом и стилем
   void _createNewTextBlock(String text, TextStyleAttributes? style) {
-    if (widget.enableLogging) {
-      print('Создание нового текстового блока с текстом длиной ${text.length}');
-    }
+    final effectiveStyle = style ?? TextStyleAttributes();
+    _createNewTextBlockWithSpans(text, effectiveStyle, [TextSpanDocument(text: text, style: effectiveStyle)]);
+  }
 
-    // Определяем стиль для нового блока
-    TextStyleAttributes newStyle;
-    if (style != null) {
-      newStyle = style;
-    } else if (_selectedIndex != null &&
-        _selectedIndex! < _document.elements.length &&
-        _document.elements[_selectedIndex!] is TextElement) {
-      // Если выбран текстовый элемент, используем его стиль
-      newStyle = (_document.elements[_selectedIndex!] as TextElement).style;
-    } else {
-      // Иначе используем стиль по умолчанию
-      newStyle = TextStyleAttributes();
+  // Создает новый текстовый блок с заданным текстом, стилем и спанами
+  void _createNewTextBlockWithSpans(String text, TextStyleAttributes style, List<TextSpanDocument> spans) {
+    if (widget.enableLogging) {
+      print('Создание нового текстового блока с текстом длиной ${text.length} и ${spans.length} спанами');
     }
 
     // Создаем новый текстовый элемент
-    final newElement = TextElement(text: text, style: newStyle);
+    TextElement newElement = TextElement(text: text, style: style);
+
+    // Если переданы специальные spans, используем их вместо создания одного спана
+    if (spans.isNotEmpty) {
+      newElement.spans = spans;
+      if (widget.enableLogging) {
+        print('Установлены spans для нового блока. Количество: ${spans.length}');
+      }
+    }
 
     // Если выбран элемент, вставляем новый блок после него
     if (_selectedIndex != null && _selectedIndex! < _document.elements.length) {
@@ -1312,38 +1312,82 @@ class _CustomEditorState extends State<CustomEditor> {
     }
 
     // Определяем стиль текущего элемента в позиции курсора, а не стиль всего элемента
-    TextStyleAttributes? currentStyle;
+    TextStyleAttributes currentStyle;
+    List<TextSpanDocument> overflowSpans = [];
+
     if (_selectedIndex != null &&
         _selectedIndex! < _document.elements.length &&
         _document.elements[_selectedIndex!] is TextElement) {
       TextElement textElement = (_document.elements[_selectedIndex!] as TextElement);
 
-      // Получаем текущую позицию курсора и стиль в этой позиции
+      // Создаем список спанов для нового блока
+      // В зависимости от позиции курсора, мы можем определить, какие стили нужно применить
       int? cursorPosition = _selection?.baseOffset;
+
       if (cursorPosition != null && cursorPosition >= 0 && cursorPosition < textElement.text.length) {
-        // Ищем стиль в позиции курсора через spans элемента
-        currentStyle = textElement.styleAt(cursorPosition);
+        // Если курсор в известной позиции, получаем стиль в этой позиции
+        TextStyleAttributes? styleAtCursor = textElement.styleAt(cursorPosition);
 
-        // Если стиль не найден в spans, используем базовый стиль элемента
-        if (currentStyle == null) {
-          currentStyle = textElement.style;
-        }
+        if (styleAtCursor != null) {
+          currentStyle = styleAtCursor;
+          if (widget.enableLogging) {
+            print(
+                'Используем стиль из позиции курсора ($cursorPosition) для переполнения: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}');
+          }
 
-        if (widget.enableLogging) {
-          print('Используем стиль из позиции курсора ($cursorPosition) для переполнения');
+          // Создаем один спан с этим стилем для переполнения
+          overflowSpans = [TextSpanDocument(text: overflowText, style: currentStyle)];
+        } else {
+          // Если стиль не найден в текущей позиции, используем стиль последнего спана
+          if (textElement.spans.isNotEmpty) {
+            currentStyle = textElement.spans.last.style;
+            overflowSpans = [TextSpanDocument(text: overflowText, style: currentStyle)];
+            if (widget.enableLogging) {
+              print(
+                  'Стиль в позиции курсора не найден, используем стиль последнего спана: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}');
+            }
+          } else {
+            // Если нет спанов, используем базовый стиль элемента
+            currentStyle = textElement.style;
+            overflowSpans = [TextSpanDocument(text: overflowText, style: currentStyle)];
+            if (widget.enableLogging) {
+              print(
+                  'Используем базовый стиль элемента для переполнения, т.к. позиция курсора недоступна: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}');
+            }
+          }
         }
       } else {
-        // Если не удалось получить позицию курсора, используем базовый стиль элемента
-        currentStyle = textElement.style;
-        if (widget.enableLogging) {
-          print('Используем базовый стиль элемента для переполнения, т.к. позиция курсора недоступна');
+        // Если позиция курсора неизвестна, используем стиль последнего спана
+        if (textElement.spans.isNotEmpty) {
+          currentStyle = textElement.spans.last.style;
+          overflowSpans = [TextSpanDocument(text: overflowText, style: currentStyle)];
+          if (widget.enableLogging) {
+            print(
+                'Позиция курсора недоступна, используем стиль последнего спана: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}');
+          }
+        } else {
+          // Если нет спанов, используем базовый стиль элемента
+          currentStyle = textElement.style;
+          overflowSpans = [TextSpanDocument(text: overflowText, style: currentStyle)];
+          if (widget.enableLogging) {
+            print(
+                'Используем базовый стиль элемента для переполнения, т.к. позиция курсора недоступна: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}');
+          }
         }
+      }
+    } else {
+      // Если не выбран текстовый элемент, используем стиль по умолчанию
+      currentStyle = TextStyleAttributes();
+      overflowSpans = [TextSpanDocument(text: overflowText, style: currentStyle)];
+      if (widget.enableLogging) {
+        print(
+            'Используем стиль по умолчанию для переполнения: bold=${currentStyle.bold}, italic=${currentStyle.italic}, underline=${currentStyle.underline}, fontSize=${currentStyle.fontSize}');
       }
     }
 
     // Если размер текста меньше 9500 символов, создаем один блок независимо от наличия переносов строк
     if (overflowText.length < 9500) {
-      _createNewTextBlock(overflowText, currentStyle);
+      _createNewTextBlockWithSpans(overflowText, currentStyle, overflowSpans);
       if (widget.enableLogging) {
         print('Создан единичный блок для текста длиной ${overflowText.length} символов (<9500)');
       }
@@ -1369,7 +1413,8 @@ class _CustomEditorState extends State<CustomEditor> {
         if (paragraph.length > blockSizeLimit) {
           // Сначала сохраняем накопленный блок, если он не пустой
           if (currentBlock.isNotEmpty) {
-            _createNewTextBlock(currentBlock, currentStyle);
+            _createNewTextBlockWithSpans(
+                currentBlock, currentStyle, [TextSpanDocument(text: currentBlock, style: currentStyle)]);
             if (widget.enableLogging) {
               print('Создан блок длиной ${currentBlock.length} символов');
             }
@@ -1378,7 +1423,8 @@ class _CustomEditorState extends State<CustomEditor> {
           }
 
           // Затем создаем отдельный блок для большого параграфа
-          _createNewTextBlock(paragraph, currentStyle);
+          _createNewTextBlockWithSpans(
+              paragraph, currentStyle, [TextSpanDocument(text: paragraph, style: currentStyle)]);
           if (widget.enableLogging) {
             print('Создан блок из большого параграфа длиной ${paragraph.length} символов');
           }
@@ -1390,7 +1436,8 @@ class _CustomEditorState extends State<CustomEditor> {
 
           // Если при добавлении параграфа блок превысит лимит, сохраняем текущий и начинаем новый
           if (futureBlockLength > blockSizeLimit && currentBlock.isNotEmpty) {
-            _createNewTextBlock(currentBlock, currentStyle);
+            _createNewTextBlockWithSpans(
+                currentBlock, currentStyle, [TextSpanDocument(text: currentBlock, style: currentStyle)]);
             if (widget.enableLogging) {
               print('Создан блок длиной ${currentBlock.length} символов (достиг лимита)');
             }
@@ -1411,14 +1458,15 @@ class _CustomEditorState extends State<CustomEditor> {
 
       // Создаем блок из оставшегося текста, если он есть
       if (currentBlock.isNotEmpty) {
-        _createNewTextBlock(currentBlock, currentStyle);
+        _createNewTextBlockWithSpans(
+            currentBlock, currentStyle, [TextSpanDocument(text: currentBlock, style: currentStyle)]);
         if (widget.enableLogging) {
           print('Создан последний блок длиной ${currentBlock.length} символов');
         }
       }
     } else {
       // Если текст не содержит переносов строк, создаем один блок
-      _createNewTextBlock(overflowText, currentStyle);
+      _createNewTextBlockWithSpans(overflowText, currentStyle, overflowSpans);
       if (widget.enableLogging) {
         print('Создан единичный блок для переполнения длиной ${overflowText.length} символов');
       }
